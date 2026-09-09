@@ -1,0 +1,1 @@
+if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/kaka_calendar/sw.js', { scope: '/kaka_calendar/' })})}
