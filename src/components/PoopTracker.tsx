@@ -68,6 +68,81 @@ const SOUNDS = [
   { id: "poop2.mp3", label: "пук2" },
 ];
 
+const ACHIEVEMENTS = [
+  {
+    id: "streak_1",
+    name: "Первая кровь... тьфу, стул",
+    desc: "Сделай стрик 1 день",
+    icon: "🔥",
+  },
+  {
+    id: "streak_2",
+    name: "Уверенный шаг",
+    desc: "Сделай стрик 2 дня",
+    icon: "🔥",
+  },
+  {
+    id: "streak_3",
+    name: "Вошел во вкус",
+    desc: "Сделай стрик 3 дня",
+    icon: "🔥",
+  },
+  {
+    id: "streak_4",
+    name: "Стабильность — признак мастерства",
+    desc: "Сделай стрик 4 дня",
+    icon: "🔥",
+  },
+  {
+    id: "streak_5",
+    name: "Пятидневный марафон",
+    desc: "Сделай стрик 5 дней",
+    icon: "🔥",
+  },
+  {
+    id: "streak_6",
+    name: "Почти идеал",
+    desc: "Сделай стрик 6 дней",
+    icon: "🔥",
+  },
+  {
+    id: "streak_7",
+    name: "Король Унитаза",
+    desc: "Закрой полный стрик из 7 дней",
+    icon: "👑",
+  },
+  {
+    id: "lost_streak",
+    name: "Обидная потеря",
+    desc: "Потеряй стрик",
+    icon: "📉",
+  },
+  {
+    id: "magic_restore",
+    name: "Магия вне Хогвартса",
+    desc: "Воспользуйся секретной кнопкой восстановления стрика",
+    icon: "🪄",
+  },
+  {
+    id: "machine_gun",
+    name: "Пулемёт",
+    desc: "Сходи в туалет больше 1 раза за день",
+    icon: "🚀",
+  },
+  {
+    id: "liquid_gold",
+    name: "Дал жиденького",
+    desc: "Выбери вариант качества «Понос»",
+    icon: "💦",
+  },
+  {
+    id: "soup_time",
+    name: "Нужно покушать супчика",
+    desc: "Отметь плохой поход (😢)",
+    icon: "🥣",
+  },
+];
+
 export function PoopTracker() {
   const [records, setRecords] = useState<Records>(() => {
     try {
@@ -93,44 +168,31 @@ export function PoopTracker() {
   );
 
   const [viewDate, setViewDate] = useState<Date>(new Date());
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
+  const [detailDate, setDetailDate] = useState<Date>(new Date());
+
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [step, setStep] = useState(1);
   const [draft, setDraft] = useState<Partial<DayRecord>>({});
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  useEffect(() => {
-    localStorage.setItem("poop-tracker-data", JSON.stringify(records));
-  }, [records]);
-
-  useEffect(() => {
-    if (soundPref) localStorage.setItem("pt-sound-pref", soundPref);
-  }, [soundPref]);
-
-  useEffect(() => {
-    localStorage.setItem("pt-last-restore", lastRestore.toString());
-  }, [lastRestore]);
-
-  useEffect(() => {
-    if (selectedDate || isSettingsOpen) {
-      document.body.style.overflow = "hidden";
-      document.body.style.position = "fixed";
-      document.body.style.width = "100%";
-    } else {
-      document.body.style.overflow = "";
-      document.body.style.position = "";
-      document.body.style.width = "";
-    }
-    return () => {
-      document.body.style.overflow = "";
-      document.body.style.position = "";
-      document.body.style.width = "";
-    };
-  }, [selectedDate, isSettingsOpen]);
+  const [unlockedAchievements, setUnlockedAchievements] = useState<string[]>(
+    () => {
+      try {
+        return JSON.parse(localStorage.getItem("pt-achievements") || "[]");
+      } catch {
+        return [];
+      }
+    },
+  );
+  const [isAchievModalOpen, setIsAchievModalOpen] = useState(false);
 
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
+
+  const [currentTime] = useState(() => Date.now());
   const now = new Date();
+
   const todayKey = toDateKey(now.getFullYear(), now.getMonth(), now.getDate());
 
   const yesterdayObj = new Date(now);
@@ -140,6 +202,14 @@ export function PoopTracker() {
     yesterdayObj.getMonth(),
     yesterdayObj.getDate(),
   );
+
+  const detailKey = toDateKey(
+    detailDate.getFullYear(),
+    detailDate.getMonth(),
+    detailDate.getDate(),
+  );
+  const detailRecord = records[detailKey];
+  const isTodayDetail = detailKey === todayKey;
 
   const cells = useMemo(() => {
     const firstDay = new Date(year, month, 1);
@@ -161,21 +231,6 @@ export function PoopTracker() {
   }, [records, year, month]);
 
   const streakInfo = useMemo(() => {
-    const now = new Date();
-    const todayStr = toDateKey(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-    );
-
-    const yesterdayObj = new Date(now);
-    yesterdayObj.setDate(yesterdayObj.getDate() - 1);
-    const yesterdayStr = toDateKey(
-      yesterdayObj.getFullYear(),
-      yesterdayObj.getMonth(),
-      yesterdayObj.getDate(),
-    );
-
     const activeEntries = Object.entries(records)
       .filter(([, data]) => data.status && data.status !== "cancel")
       .sort((a, b) => b[0].localeCompare(a[0]));
@@ -186,9 +241,8 @@ export function PoopTracker() {
     if (totalActive === 0)
       return { streak: 0, isLost: false, isBeginner: true };
 
-    const hasToday = activeDates.includes(todayStr);
-    const hasYesterday = activeDates.includes(yesterdayStr);
-
+    const hasToday = activeDates.includes(todayKey);
+    const hasYesterday = activeDates.includes(yesterdayKey);
     const isBeginner = totalActive < 2 && !hasYesterday;
 
     if (!hasToday && !hasYesterday && totalActive > 0) {
@@ -213,12 +267,104 @@ export function PoopTracker() {
       }
     }
 
-    return {
-      streak: Math.min(streak, 7),
-      isLost: false,
-      isBeginner,
-    };
+    return { streak: Math.min(streak, 7), isLost: false, isBeginner };
+  }, [records, todayKey, yesterdayKey]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      "pt-achievements",
+      JSON.stringify(unlockedAchievements),
+    );
+  }, [unlockedAchievements]);
+
+  useEffect(() => {
+    const newlyUnlocked: string[] = [];
+    const values = Object.values(records);
+
+    if (streakInfo.streak >= 1 && !unlockedAchievements.includes("streak_1"))
+      newlyUnlocked.push("streak_1");
+    if (streakInfo.streak >= 2 && !unlockedAchievements.includes("streak_2"))
+      newlyUnlocked.push("streak_2");
+    if (streakInfo.streak >= 3 && !unlockedAchievements.includes("streak_3"))
+      newlyUnlocked.push("streak_3");
+    if (streakInfo.streak >= 4 && !unlockedAchievements.includes("streak_4"))
+      newlyUnlocked.push("streak_4");
+    if (streakInfo.streak >= 5 && !unlockedAchievements.includes("streak_5"))
+      newlyUnlocked.push("streak_5");
+    if (streakInfo.streak >= 6 && !unlockedAchievements.includes("streak_6"))
+      newlyUnlocked.push("streak_6");
+    if (streakInfo.streak >= 7 && !unlockedAchievements.includes("streak_7"))
+      newlyUnlocked.push("streak_7");
+    if (streakInfo.isLost && !unlockedAchievements.includes("lost_streak"))
+      newlyUnlocked.push("lost_streak");
+    if (lastRestore > 0 && !unlockedAchievements.includes("magic_restore"))
+      newlyUnlocked.push("magic_restore");
+    if (
+      values.some((r) => Number(r.count) > 1) &&
+      !unlockedAchievements.includes("machine_gun")
+    )
+      newlyUnlocked.push("machine_gun");
+    if (
+      values.some((r) => r.quality === "diarrhea") &&
+      !unlockedAchievements.includes("liquid_gold")
+    )
+      newlyUnlocked.push("liquid_gold");
+    if (
+      values.some((r) => r.status === "sad") &&
+      !unlockedAchievements.includes("soup_time")
+    )
+      newlyUnlocked.push("soup_time");
+
+    if (newlyUnlocked.length > 0) {
+      setTimeout(() => {
+        setUnlockedAchievements((prev) => [...prev, ...newlyUnlocked]);
+      }, 0);
+    }
+  }, [records, streakInfo, lastRestore, unlockedAchievements]);
+
+  useEffect(() => {
+    localStorage.setItem("poop-tracker-data", JSON.stringify(records));
   }, [records]);
+
+  useEffect(() => {
+    if (soundPref) localStorage.setItem("pt-sound-pref", soundPref);
+  }, [soundPref]);
+
+  useEffect(() => {
+    localStorage.setItem("pt-last-restore", lastRestore.toString());
+  }, [lastRestore]);
+
+  useEffect(() => {
+    if (selectedDate || isSettingsOpen || isAchievModalOpen) {
+      document.body.style.overflow = "hidden";
+      document.body.style.position = "fixed";
+      document.body.style.width = "100%";
+    } else {
+      document.body.style.overflow = "";
+      document.body.style.position = "";
+      document.body.style.width = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+      document.body.style.position = "";
+      document.body.style.width = "";
+    };
+  }, [selectedDate, isSettingsOpen, isAchievModalOpen]);
+
+  const handlePrevDay = () => {
+    const d = new Date(detailDate);
+    d.setDate(d.getDate() - 1);
+    setDetailDate(d);
+    setViewDate(new Date(d.getFullYear(), d.getMonth(), 1));
+  };
+
+  const handleNextDay = () => {
+    const d = new Date(detailDate);
+    d.setDate(d.getDate() + 1);
+    if (d > now) return;
+    setDetailDate(d);
+    setViewDate(new Date(d.getFullYear(), d.getMonth(), 1));
+  };
 
   const openModal = (key: string) => {
     setSelectedDate(key);
@@ -246,12 +392,10 @@ export function PoopTracker() {
     setSelectedDate(null);
   };
 
-  const clearDay = () => {
-    if (!selectedDate) return;
+  const clearDay = (keyToClear: string) => {
     const next = { ...records };
-    delete next[selectedDate];
+    delete next[keyToClear];
     setRecords(next);
-    setSelectedDate(null);
   };
 
   const handleRestoreStreak = () => {
@@ -261,9 +405,6 @@ export function PoopTracker() {
     });
     setLastRestore(Date.now());
   };
-
-  const todayRecord = records[todayKey];
-  const [currentTime] = useState(() => Date.now());
 
   const cooldownDaysLeft = Math.ceil(
     (7 * 24 * 60 * 60 * 1000 - (currentTime - lastRestore)) /
@@ -280,7 +421,16 @@ export function PoopTracker() {
           <p>Слежу за тобой</p>
         </div>
         <div className="pt-header__actions">
-          <div className="pt-streak">🔥 {streakInfo.streak}/7</div>
+          <div className={`pt-streak pt-streak--${streakInfo.streak}`}>
+            <span className="pt-streak__icon" />
+            <span>{streakInfo.streak}/7</span>
+          </div>
+          <button
+            className="pt-settings-btn"
+            onClick={() => setIsAchievModalOpen(true)}
+          >
+            🏆
+          </button>
           <button
             className="pt-settings-btn"
             onClick={() => setIsSettingsOpen(true)}
@@ -345,20 +495,17 @@ export function PoopTracker() {
             const isToday = key === todayKey;
 
             return (
-              <button
+              <div
                 key={key}
-                type="button"
                 className={[
                   "cal-cell",
+                  "cal-cell--display",
                   isToday && "cal-cell--today",
-                  key === selectedDate && "cal-cell--selected",
+                  key === detailKey && "cal-cell--selected",
                   record?.status && `cal-cell--${record.status}`,
                 ]
                   .filter(Boolean)
                   .join(" ")}
-                onClick={() =>
-                  selectedDate === key ? setSelectedDate(null) : openModal(key)
-                }
               >
                 <span className="cal-cell__day">{day}</span>
                 {record?.status && (
@@ -366,43 +513,73 @@ export function PoopTracker() {
                     {STATUS_EMOJI[record.status]}
                   </span>
                 )}
-              </button>
+              </div>
             );
           })}
         </div>
       </div>
 
-      <div className="pt-today-block">
-        <h3 className="pt-today-block__title">
-          Сегодня, {now.getDate()} {MONTHS[now.getMonth()]}
-        </h3>
-        {todayRecord ? (
-          <div className="pt-today-block__content">
+      <div className="pt-details-block">
+        <div className="pt-details-header">
+          <button className="pt-details-nav" onClick={handlePrevDay}>
+            ‹
+          </button>
+          <h3 className="pt-details-title">
+            {isTodayDetail ? "Сегодня, " : ""}
+            {detailDate.getDate()} {MONTHS[detailDate.getMonth()]}
+          </h3>
+          <button
+            className="pt-details-nav"
+            onClick={handleNextDay}
+            disabled={isTodayDetail}
+          >
+            ›
+          </button>
+        </div>
+
+        {detailRecord ? (
+          <div className="pt-details-content">
             <div className="today-row">
               <span>Статус:</span>{" "}
               <strong>
-                {STATUS_EMOJI[todayRecord.status]}{" "}
-                {STATUS_LABELS[todayRecord.status]}
+                {STATUS_EMOJI[detailRecord.status]}{" "}
+                {STATUS_LABELS[detailRecord.status]}
               </strong>
             </div>
-            {todayRecord.count && (
+            {detailRecord.count && (
               <div className="today-row">
                 <span>Количество:</span>{" "}
-                <strong>{todayRecord.count} раз(а)</strong>
+                <strong>{detailRecord.count} раз(а)</strong>
               </div>
             )}
-            {todayRecord.quality && (
+            {detailRecord.quality && (
               <div className="today-row">
                 <span>Качество:</span>{" "}
-                <strong>{QUALITY_LABELS[todayRecord.quality]}</strong>
+                <strong>{QUALITY_LABELS[detailRecord.quality]}</strong>
               </div>
             )}
           </div>
         ) : (
-          <div className="pt-today-block__empty">
-            Нету информации по сегодняшнему стулу
-          </div>
+          <div className="pt-details-empty">Нет информации за этот день</div>
         )}
+
+        <div className="pt-details-actions">
+          <button
+            className="pt-btn pt-btn--primary pt-btn--action"
+            onClick={() => openModal(detailKey)}
+          >
+            {detailRecord ? "✏️ Отредактировать запись" : "💩 Сходил покакать!"}
+          </button>
+
+          {detailRecord && (
+            <button
+              className="pt-btn pt-btn--danger"
+              onClick={() => clearDay(detailKey)}
+            >
+              🗑️ Удалить запись
+            </button>
+          )}
+        </div>
       </div>
 
       {isSettingsOpen && (
@@ -462,6 +639,50 @@ export function PoopTracker() {
               <button
                 className="pt-modal__close"
                 onClick={() => setIsSettingsOpen(false)}
+              >
+                Закрыть
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isAchievModalOpen && (
+        <div className="pt-overlay" onClick={() => setIsAchievModalOpen(false)}>
+          <div
+            className="pt-modal pt-modal--achievs"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="pt-modal__handle" />
+            <h3 className="pt-modal__title">Достижения</h3>
+            <div className="pt-achievements-list">
+              {ACHIEVEMENTS.map((ach) => {
+                const isUnlocked = unlockedAchievements.includes(ach.id);
+                return (
+                  <div
+                    key={ach.id}
+                    className={`pt-achiev-card ${isUnlocked ? "unlocked" : "locked"}`}
+                  >
+                    <div className="pt-achiev-card__icon">
+                      {isUnlocked ? ach.icon : "🔒"}
+                    </div>
+                    <div className="pt-achiev-card__info">
+                      <div className="pt-achiev-card__status">
+                        {isUnlocked ? "Выполнено!" : "Заблокировано"}
+                      </div>
+                      <h4 className="pt-achiev-card__name">
+                        {isUnlocked ? ach.name : "???"}
+                      </h4>
+                      <p className="pt-achiev-card__desc">{ach.desc}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="pt-modal__actions">
+              <button
+                className="pt-modal__close"
+                onClick={() => setIsAchievModalOpen(false)}
               >
                 Закрыть
               </button>
@@ -563,11 +784,6 @@ export function PoopTracker() {
               >
                 Закрыть
               </button>
-              {records[selectedDate] && (
-                <button className="pt-modal__clear" onClick={clearDay}>
-                  Удалить запись
-                </button>
-              )}
             </div>
           </div>
         </div>
