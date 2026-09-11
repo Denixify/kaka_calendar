@@ -444,6 +444,12 @@ export function PoopTracker() {
     };
   }, [selectedDate, isSettingsOpen, isAchievModalOpen]);
 
+  const handleGoToday = () => {
+    const now = new Date();
+    setDetailDate(now);
+    setViewDate(new Date(now.getFullYear(), now.getMonth(), 1));
+  };
+
   const handlePrevDay = () => {
     const d = new Date(detailDate);
     d.setDate(d.getDate() - 1);
@@ -627,10 +633,20 @@ export function PoopTracker() {
           <button className="pt-details-nav" onClick={handlePrevDay}>
             ‹
           </button>
-          <h3 className="pt-details-title">
-            {isTodayDetail ? "Сегодня, " : ""}
-            {detailDate.getDate()} {MONTHS[detailDate.getMonth()]}
-          </h3>
+
+          <div className="pt-details-center">
+            <h3 className="pt-details-title">
+              {detailDate.getDate()} {MONTHS[detailDate.getMonth()]}
+            </h3>
+            <button
+              className="pt-btn--today"
+              disabled={isTodayDetail}
+              onClick={handleGoToday}
+            >
+              Сегодня
+            </button>
+          </div>
+
           <button
             className="pt-details-nav"
             onClick={handleNextDay}
@@ -758,10 +774,20 @@ export function PoopTracker() {
           >
             <div className="pt-modal__handle" />
             <h3 className="pt-modal__title">Достижения</h3>
-            <p className="pt-achievs-progress">
-              Разблокировано {unlockedAchievements.length} из{" "}
-              {ACHIEVEMENTS.length}
-            </p>
+            <div className="pt-achievs-progress-container">
+              <p className="pt-achievs-progress-text">
+                Разблокировано {unlockedAchievements.length} из{" "}
+                {ACHIEVEMENTS.length}
+              </p>
+              <div className="pt-achievs-progress-bar">
+                <div
+                  className="pt-achievs-progress-fill"
+                  style={{
+                    width: `${(unlockedAchievements.length / ACHIEVEMENTS.length) * 100}%`,
+                  }}
+                />
+              </div>
+            </div>
 
             <div className="pt-achievements-list">
               {ACHIEVEMENTS.map((ach) => {
@@ -809,13 +835,16 @@ export function PoopTracker() {
               <div className="pt-modal__step">
                 <h3 className="pt-modal__title">Количество походов</h3>
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   className="pt-input"
                   placeholder="Например: 2"
                   value={draft.count || ""}
-                  onChange={(e) =>
-                    setDraft({ ...draft, count: e.target.value })
-                  }
+                  onChange={(e) => {
+                    const onlyNumbers = e.target.value.replace(/\D/g, "");
+                    setDraft({ ...draft, count: onlyNumbers });
+                  }}
                 />
                 <div className="pt-modal__actions-row">
                   <button

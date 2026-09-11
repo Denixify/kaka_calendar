@@ -57,11 +57,11 @@ button {
   min-height: 100svh;
   max-width: 430px;
   margin: 0 auto;
-  padding: calc(env(safe-area-inset-top, 16px) + 12px) 16px
-    env(safe-area-inset-bottom, 24px);
+  padding: calc(env(safe-area-inset-top, 16px) + 8px) 16px
+    env(safe-area-inset-bottom, 16px);
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 12px;
 }
 
 .pt-header {
@@ -117,7 +117,7 @@ button {
   background: var(--pt-surface);
   border: 1px solid var(--pt-border);
   border-radius: var(--pt-radius-sm);
-  padding: 12px 8px;
+  padding: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -140,14 +140,14 @@ button {
   border-radius: var(--pt-radius);
   box-shadow: var(--pt-shadow);
   border: 1px solid var(--pt-border);
-  padding: 20px 16px;
+  padding: 16px;
 }
 
 .cal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 20px;
+  margin-bottom: 12px;
 }
 
 .cal-title {
@@ -474,19 +474,19 @@ button {
 .pt-details-block {
   background: var(--pt-surface);
   border-radius: var(--pt-radius);
-  padding: 20px;
+  padding: 16px;
   box-shadow: var(--pt-shadow);
 
   .pt-details-actions {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 8px;
   }
 
   .pt-btn--danger {
     width: 100%;
     font-size: 15px;
-    padding: 14px;
+    padding: 12px;
     font-weight: 600;
     color: #ef4444;
     background: #fef2f2;
@@ -505,7 +505,14 @@ button {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 20px;
+    margin-bottom: 12px;
+  }
+
+  .pt-details-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
   }
 
   .pt-details-nav {
@@ -542,11 +549,37 @@ button {
     color: var(--pt-text);
   }
 
+  .pt-btn--today {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--pt-accent);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 4px 12px;
+    border-radius: 12px;
+    background: var(--pt-accent-light);
+    transition: all 0.2s ease;
+    border: none;
+    cursor: pointer;
+
+    &:disabled {
+      background: transparent;
+      color: var(--pt-text-3);
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    &:not(:disabled):active {
+      transform: scale(0.95);
+      background: var(--pt-surface2);
+    }
+  }
+
   .pt-details-content {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    margin-bottom: 20px;
+    gap: 8px;
+    margin-bottom: 12px;
 
     .today-row {
       display: flex;
@@ -578,8 +611,8 @@ button {
 
   .pt-btn--action {
     width: 100%;
-    font-size: 16px;
-    padding: 16px;
+    font-size: 15px;
+    padding: 12px;
     font-weight: 700;
     background: linear-gradient(135deg, var(--pt-accent) 0%, #d946ef 100%);
     box-shadow: 0 4px 12px rgba(192, 38, 160, 0.3);
@@ -589,9 +622,9 @@ button {
 .today-row {
   display: flex;
   justify-content: space-between;
-  font-size: 15px;
+  font-size: 14px;
   color: var(--pt-text-2);
-  padding: 8px;
+  padding: 8px 12px;
   background: var(--pt-surface2);
   border-radius: 8px;
 
@@ -901,14 +934,37 @@ button {
   flex-direction: column;
 }
 
-.pt-achievs-progress {
+.pt-achievs-progress-container {
+  margin: -10px 0 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pt-achievs-progress-text {
   text-align: center;
   font-size: 13px;
   font-weight: 700;
   color: var(--pt-text-3);
-  margin: -10px 0 12px 0;
+  margin: 10px 0 0 0;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.pt-achievs-progress-bar {
+  height: 8px;
+  background: var(--pt-border);
+  border-radius: 4px;
+  overflow: hidden;
+  width: 70%;
+  margin: 0 auto;
+}
+
+.pt-achievs-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--pt-accent) 0%, #d946ef 100%);
+  border-radius: 4px;
+  transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .pt-achievements-list {
