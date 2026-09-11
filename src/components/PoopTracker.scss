@@ -21,8 +21,8 @@
   --pt-cancel: #e5e7eb;
   --pt-cancel-bg: #f9fafb;
 
-  --pt-radius: 24px; /* Увеличил для iOS стиля */
-  --pt-radius-sm: 16px; /* Увеличил для iOS стиля */
+  --pt-radius: 24px;
+  --pt-radius-sm: 16px;
   --pt-shadow: 0 8px 24px rgba(192, 38, 160, 0.08);
   --pt-shadow-modal: 0 -4px 40px rgba(192, 38, 160, 0.15);
 
@@ -799,6 +799,31 @@ button {
   }
 }
 
+.pt-badge-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.pt-badge {
+  position: absolute;
+  top: -2px;
+  right: -6px;
+  background-color: #ef4444;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  height: 20px;
+  min-width: 20px;
+  padding: 0 5px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 5px rgba(239, 68, 68, 0.4);
+  pointer-events: none;
+  border: 2px solid var(--pt-bg);
+}
+
 .pt-settings-section {
   margin-bottom: 24px;
 
@@ -874,6 +899,16 @@ button {
   max-height: 85vh;
   display: flex;
   flex-direction: column;
+}
+
+.pt-achievs-progress {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--pt-text-3);
+  margin: -10px 0 12px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .pt-achievements-list {

@@ -111,10 +111,11 @@ const ACHIEVEMENTS = [
     desc: "Закрой полный стрик из 7 дней",
     icon: "👑",
   },
+
   {
     id: "lost_streak",
-    name: "Обидная потеря",
-    desc: "Потеряй стрик",
+    name: "Потрачено",
+    desc: "Обидно потеряй стрик",
     icon: "📉",
   },
   {
@@ -136,10 +137,46 @@ const ACHIEVEMENTS = [
     icon: "💦",
   },
   {
+    id: "fatality",
+    name: "Fatality!",
+    desc: "Схватка была напряженной... Выбери вариант качества «Твердый»",
+    icon: "🧱",
+  },
+  {
+    id: "perfect_soft",
+    name: "Мягкая посадка",
+    desc: "Идеальный баланс. Выбери вариант качества «Мягкий».",
+    icon: "☁️",
+  },
+  {
+    id: "schrodinger",
+    name: "Стул Шрёдингера",
+    desc: "Он как бы есть, но какой он — загадка... Выбери качество «Неопределенный».",
+    icon: "📦",
+  },
+  {
+    id: "stranger_things",
+    name: "Плохой день",
+    desc: "Сегодня обойдемся без смеха... Отметь «Без походов».",
+    icon: "🔦",
+  },
+  {
     id: "soup_time",
     name: "Нужно покушать супчика",
     desc: "Отметь плохой поход (😢)",
     icon: "🥣",
+  },
+  {
+    id: "not_great_not_terrible",
+    name: "Полёт нормальный",
+    desc: "Не отлично, но и не ужасно. Отметь статус «Нормально» (😐).",
+    icon: "☢️",
+  },
+  {
+    id: "chamber_of_secrets",
+    name: "Тайная комната открыта",
+    desc: "Трепещите, враги наследника! Отметь статус «Отлично» (😊)",
+    icon: "🐍",
   },
 ];
 
@@ -168,13 +205,14 @@ export function PoopTracker() {
   );
 
   const [viewDate, setViewDate] = useState<Date>(new Date());
-
   const [detailDate, setDetailDate] = useState<Date>(new Date());
-
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
   const [step, setStep] = useState(1);
   const [draft, setDraft] = useState<Partial<DayRecord>>({});
+
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAchievModalOpen, setIsAchievModalOpen] = useState(false);
 
   const [unlockedAchievements, setUnlockedAchievements] = useState<string[]>(
     () => {
@@ -185,12 +223,15 @@ export function PoopTracker() {
       }
     },
   );
-  const [isAchievModalOpen, setIsAchievModalOpen] = useState(false);
+
+  const [newAchievsCount, setNewAchievsCount] = useState<number>(() => {
+    return Number(localStorage.getItem("pt-new-achievs") || 0);
+  });
+
+  const [currentTime] = useState(() => Date.now());
 
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
-
-  const [currentTime] = useState(() => Date.now());
   const now = new Date();
 
   const todayKey = toDateKey(now.getFullYear(), now.getMonth(), now.getDate());
@@ -231,6 +272,20 @@ export function PoopTracker() {
   }, [records, year, month]);
 
   const streakInfo = useMemo(() => {
+    const _now = new Date();
+    const _todayStr = toDateKey(
+      _now.getFullYear(),
+      _now.getMonth(),
+      _now.getDate(),
+    );
+    const _yestObj = new Date(_now);
+    _yestObj.setDate(_yestObj.getDate() - 1);
+    const _yestStr = toDateKey(
+      _yestObj.getFullYear(),
+      _yestObj.getMonth(),
+      _yestObj.getDate(),
+    );
+
     const activeEntries = Object.entries(records)
       .filter(([, data]) => data.status && data.status !== "cancel")
       .sort((a, b) => b[0].localeCompare(a[0]));
@@ -241,8 +296,8 @@ export function PoopTracker() {
     if (totalActive === 0)
       return { streak: 0, isLost: false, isBeginner: true };
 
-    const hasToday = activeDates.includes(todayKey);
-    const hasYesterday = activeDates.includes(yesterdayKey);
+    const hasToday = activeDates.includes(_todayStr);
+    const hasYesterday = activeDates.includes(_yestStr);
     const isBeginner = totalActive < 2 && !hasYesterday;
 
     if (!hasToday && !hasYesterday && totalActive > 0) {
@@ -268,14 +323,7 @@ export function PoopTracker() {
     }
 
     return { streak: Math.min(streak, 7), isLost: false, isBeginner };
-  }, [records, todayKey, yesterdayKey]);
-
-  useEffect(() => {
-    localStorage.setItem(
-      "pt-achievements",
-      JSON.stringify(unlockedAchievements),
-    );
-  }, [unlockedAchievements]);
+  }, [records]);
 
   useEffect(() => {
     const newlyUnlocked: string[] = [];
@@ -295,10 +343,12 @@ export function PoopTracker() {
       newlyUnlocked.push("streak_6");
     if (streakInfo.streak >= 7 && !unlockedAchievements.includes("streak_7"))
       newlyUnlocked.push("streak_7");
+
     if (streakInfo.isLost && !unlockedAchievements.includes("lost_streak"))
       newlyUnlocked.push("lost_streak");
     if (lastRestore > 0 && !unlockedAchievements.includes("magic_restore"))
       newlyUnlocked.push("magic_restore");
+
     if (
       values.some((r) => Number(r.count) > 1) &&
       !unlockedAchievements.includes("machine_gun")
@@ -315,21 +365,64 @@ export function PoopTracker() {
     )
       newlyUnlocked.push("soup_time");
 
+    if (
+      values.some((r) => r.quality === "hard") &&
+      !unlockedAchievements.includes("fatality")
+    )
+      newlyUnlocked.push("fatality");
+    if (
+      values.some((r) => r.status === "happy") &&
+      !unlockedAchievements.includes("chamber_of_secrets")
+    )
+      newlyUnlocked.push("chamber_of_secrets");
+    if (
+      values.some((r) => r.status === "cancel") &&
+      !unlockedAchievements.includes("stranger_things")
+    )
+      newlyUnlocked.push("stranger_things");
+    if (
+      values.some((r) => r.quality === "soft") &&
+      !unlockedAchievements.includes("perfect_soft")
+    )
+      newlyUnlocked.push("perfect_soft");
+
+    if (
+      values.some((r) => r.quality === "undefined") &&
+      !unlockedAchievements.includes("schrodinger")
+    )
+      newlyUnlocked.push("schrodinger");
+
+    if (
+      values.some((r) => r.status === "neutral") &&
+      !unlockedAchievements.includes("not_great_not_terrible")
+    )
+      newlyUnlocked.push("not_great_not_terrible");
+
     if (newlyUnlocked.length > 0) {
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         setUnlockedAchievements((prev) => [...prev, ...newlyUnlocked]);
+        setNewAchievsCount((prev) => prev + newlyUnlocked.length);
       }, 0);
+
+      return () => clearTimeout(timer);
     }
   }, [records, streakInfo, lastRestore, unlockedAchievements]);
 
   useEffect(() => {
+    localStorage.setItem(
+      "pt-achievements",
+      JSON.stringify(unlockedAchievements),
+    );
+  }, [unlockedAchievements]);
+  useEffect(() => {
+    localStorage.setItem("pt-new-achievs", newAchievsCount.toString());
+  }, [newAchievsCount]);
+  useEffect(() => {
     localStorage.setItem("poop-tracker-data", JSON.stringify(records));
   }, [records]);
-
   useEffect(() => {
     if (soundPref) localStorage.setItem("pt-sound-pref", soundPref);
   }, [soundPref]);
-
   useEffect(() => {
     localStorage.setItem("pt-last-restore", lastRestore.toString());
   }, [lastRestore]);
@@ -425,12 +518,22 @@ export function PoopTracker() {
             <span className="pt-streak__icon" />
             <span>{streakInfo.streak}/7</span>
           </div>
-          <button
-            className="pt-settings-btn"
-            onClick={() => setIsAchievModalOpen(true)}
-          >
-            🏆
-          </button>
+
+          <div className="pt-badge-wrapper">
+            <button
+              className="pt-settings-btn"
+              onClick={() => {
+                setIsAchievModalOpen(true);
+                setNewAchievsCount(0);
+              }}
+            >
+              🏆
+            </button>
+            {newAchievsCount > 0 && (
+              <span className="pt-badge">{newAchievsCount}</span>
+            )}
+          </div>
+
           <button
             className="pt-settings-btn"
             onClick={() => setIsSettingsOpen(true)}
@@ -655,6 +758,11 @@ export function PoopTracker() {
           >
             <div className="pt-modal__handle" />
             <h3 className="pt-modal__title">Достижения</h3>
+            <p className="pt-achievs-progress">
+              Разблокировано {unlockedAchievements.length} из{" "}
+              {ACHIEVEMENTS.length}
+            </p>
+
             <div className="pt-achievements-list">
               {ACHIEVEMENTS.map((ach) => {
                 const isUnlocked = unlockedAchievements.includes(ach.id);
