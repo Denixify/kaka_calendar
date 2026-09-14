@@ -1,8 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300" height="300">
   <defs>
-    <filter id="sticker-shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="6" stdDeviation="4" flood-color="#000000" flood-opacity="0.18"/>
-    </filter>
     <radialGradient id="bg-poop-d1" cx="35%" cy="30%" r="70%">
       <stop offset="0%" stop-color="#7a4a29"/>
       <stop offset="50%" stop-color="#523018"/>
@@ -14,8 +11,7 @@
     </linearGradient>
   </defs>
 
-  <g filter="url(#sticker-shadow)">
-    <!-- Белая контурная обводка стикера (3 этажа) -->
+  <g>
     <path d="M150 55 
              C170 55, 185 65, 195 80 
              C220 75, 240 95, 245 120 
@@ -26,7 +22,6 @@
              C60 95, 80 75, 105 80 
              C115 65, 130 55, 150 55 Z" fill="#ffffff"/>
              
-    <!-- Внутренняя тонкая серая обводка стикера -->
     <path d="M150 59 
              C168 59, 182 68, 191 82 
              C215 77, 234 97, 239 120 
@@ -37,42 +32,34 @@
              C66 97, 85 77, 109 82 
              C118 68, 132 59, 150 59 Z" fill="#eaeaea"/>
 
-    <!-- Нижний ярус (3-й этаж) -->
     <path d="M150 145 
              C195 145, 230 165, 220 200 
              C210 225, 180 230, 150 230 
              C120 230, 90 225, 80 200 
              C70 165, 105 145, 150 145 Z" fill="url(#bg-poop-d1)"/>
 
-    <!-- Средний ярус (2-й этаж) -->
     <path d="M150 100 
              C185 100, 210 120, 200 155 
              C190 180, 165 185, 150 185 
              C135 185, 110 180, 100 155 
              C90 120, 115 100, 150 100 Z" fill="#643b1f"/>
 
-    <!-- Верхний завиток с макушкой (1-й этаж) -->
     <path d="M150 65 
              C172 65, 185 80, 178 108 
              C170 130, 158 140, 150 140 
              C142 140, 130 130, 122 108 
              C115 80, 128 65, 150 65 Z" fill="#754726"/>
 
-    <!-- Лицо: День 1 (Максимально грустный, 3 этажа) -->
-    <!-- Глаза -->
     <circle cx="128" cy="144" r="8" fill="#1c0a02"/>
     <circle cx="172" cy="144" r="8" fill="#1c0a02"/>
     <circle cx="126" cy="141" r="2.5" fill="#ffffff"/>
     <circle cx="170" cy="141" r="2.5" fill="#ffffff"/>
 
-    <!-- Брови домиком -->
     <path d="M120 131 L138 137" stroke="#1c0a02" stroke-width="3.5" stroke-linecap="round"/>
     <path d="M180 131 L162 137" stroke="#1c0a02" stroke-width="3.5" stroke-linecap="round"/>
 
-    <!-- Грустный рот -->
     <path d="M138 172 Q150 162 162 172" fill="none" stroke="#1c0a02" stroke-width="3.5" stroke-linecap="round"/>
 
-    <!-- Слеза -->
     <path d="M124 154 C124 154 116 166 116 174 C116 180 120 184 125 184 C130 184 134 180 134 174 C134 166 124 154 124 154 Z" fill="url(#tear-grad-d1)"/>
     <ellipse cx="122" cy="172" rx="1.5" ry="2.5" fill="#ffffff" opacity="0.8"/>
   </g>
