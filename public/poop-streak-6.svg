@@ -1,8 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300" height="300">
   <defs>
-    <filter id="sticker-shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="6" stdDeviation="4" flood-color="#000000" flood-opacity="0.18"/>
-    </filter>
     <radialGradient id="bg-poop-d6" cx="35%" cy="30%" r="70%">
       <stop offset="0%" stop-color="#cc884e"/>
       <stop offset="50%" stop-color="#a16b41"/>
@@ -19,8 +16,7 @@
     </linearGradient>
   </defs>
 
-  <g filter="url(#sticker-shadow)">
-    <!-- Белая контурная обводка стикера (3 этажа) -->
+  <g>
     <path d="M150 55 
              C170 55, 185 65, 195 80 
              C220 75, 240 95, 245 120 
@@ -31,7 +27,6 @@
              C60 95, 80 75, 105 80 
              C115 65, 130 55, 150 55 Z" fill="#ffffff"/>
              
-    <!-- Внутренняя серая обводка -->
     <path d="M150 59 
              C168 59, 182 68, 191 82 
              C215 77, 234 97, 239 120 
@@ -42,47 +37,39 @@
              C66 97, 85 77, 109 82 
              C118 68, 132 59, 150 59 Z" fill="#eaeaea"/>
 
-    <!-- Нижний ярус (3 этаж) -->
     <path d="M150 145 
              C195 145, 230 165, 220 200 
              C210 225, 180 230, 150 230 
              C120 230, 90 225, 80 200 
              C70 165, 105 145, 150 145 Z" fill="url(#bg-poop-d6)"/>
 
-    <!-- Средний ярус (2 этаж) -->
     <path d="M150 100 
              C185 100, 210 120, 200 155 
              C190 180, 165 185, 150 185 
              C135 185, 110 180, 100 155 
              C90 120, 115 100, 150 100 Z" fill="#b37c50"/>
 
-    <!-- Верхний завиток (1 этаж) -->
     <path d="M150 65 
              C172 65, 185 80, 178 108 
              C170 130, 158 140, 150 140 
              C142 140, 130 130, 122 108 
              C115 80, 128 65, 150 65 Z" fill="#cc884e"/>
 
-    <!-- Глянцевый блик сверху -->
     <path d="M150 65 C165 65, 178 75, 182 90 C165 80, 140 85, 125 100 C120 85, 132 68, 150 65 Z" fill="url(#highlight-d6)"/>
 
-    <!-- Большая серебряная корона на макушке (День 6) -->
     <g transform="translate(0, 10)">
       <path d="M120 50 L126 73 L150 64 L174 73 L180 50 L162 58 L150 40 L138 58 Z" fill="url(#silver-crown)" stroke="#4a5a6c" stroke-width="2" stroke-linejoin="round"/>
-      <!-- Блестящие жемчужины/точки на короне -->
+
       <circle cx="120" cy="50" r="3" fill="#ffffff"/>
       <circle cx="150" cy="40" r="3.5" fill="#ffffff"/>
       <circle cx="180" cy="50" r="3" fill="#ffffff"/>
     </g>
 
-    <!-- Серебряные искры и звездочки вокруг -->
     <path d="M215 60 Q215 72 227 72 Q215 72 215 84 Q215 72 203 72 Q215 72 215 60 Z" fill="#7bc1ff"/>
     <path d="M85 60 Q85 72 97 72 Q85 72 85 84 Q85 72 73 72 Q85 72 85 60 Z" fill="#7bc1ff"/>
     <circle cx="102" cy="50" r="2.5" fill="#ffffff"/>
     <circle cx="198" cy="50" r="2.5" fill="#ffffff"/>
 
-    <!-- Лицо: День 6 (Еще более радостный, с сияющими глазами) -->
-    <!-- Глаза -->
     <ellipse cx="128" cy="144" rx="8" ry="10" fill="#1c0a02"/>
     <ellipse cx="172" cy="144" rx="8" ry="10" fill="#1c0a02"/>
     <ellipse cx="126" cy="141" rx="3" ry="4" fill="#ffffff"/>
@@ -90,14 +77,11 @@
     <circle cx="131" cy="150" r="1.5" fill="#ffffff"/>
     <circle cx="175" cy="150" r="1.5" fill="#ffffff"/>
 
-    <!-- Брови -->
     <path d="M118 129 Q128 123 138 129" fill="none" stroke="#1c0a02" stroke-width="3" stroke-linecap="round"/>
     <path d="M182 129 Q172 123 162 129" fill="none" stroke="#1c0a02" stroke-width="3" stroke-linecap="round"/>
 
-    <!-- Улыбка -->
     <path d="M136 162 Q150 174 164 162" fill="none" stroke="#1c0a02" stroke-width="3.5" stroke-linecap="round"/>
     
-    <!-- Румянец -->
     <ellipse cx="114" cy="154" rx="6" ry="3" fill="#ff5252" opacity="0.45"/>
     <ellipse cx="186" cy="154" rx="6" ry="3" fill="#ff5252" opacity="0.45"/>
   </g>
