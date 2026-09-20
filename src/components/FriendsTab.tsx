@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import type { FormEvent } from "react";
 import type { User } from "firebase/auth";
 import {
@@ -8,8 +8,16 @@ import {
   getDocs,
   setDoc,
   deleteDoc,
+  addDoc,
+  onSnapshot,
+  query,
+  orderBy,
 } from "firebase/firestore";
 import { db } from "../firebase";
+
+function toDateKey(year: number, month: number, day: number): string {
+  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
 
 const MONTHS = [
   "Январь",
@@ -34,11 +42,34 @@ const STATUS_EMOJI: Record<string, string> = {
   happy: "😊",
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  cancel: "Без походов",
+  sad: "Плохо",
+  neutral: "Нормально",
+  happy: "Отлично",
+};
+
 interface FriendProfile {
   uid: string;
   nickname: string;
   avatar?: string;
   bio?: string;
+}
+
+export interface DayComment {
+  id: string;
+  authorUid: string;
+  authorNickname: string;
+  authorAvatar: string;
+  text: string;
+  createdAt: number;
+}
+
+interface ChatMessage {
+  id: string;
+  senderUid: string;
+  text: string;
+  createdAt: number;
 }
 
 interface FriendsTabProps {
@@ -62,9 +93,17 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
   const [viewDate, setViewDate] = useState<Date>(new Date());
   const [currentUserAvatar, setCurrentUserAvatar] = useState("👑");
 
+  const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
+  const [comments, setComments] = useState<DayComment[]>([]);
+  const [newCommentText, setNewCommentText] = useState("");
+
+  const [chatPartner, setChatPartner] = useState<FriendProfile | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [newMessage, setNewMessage] = useState("");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     let isMounted = true;
-
     async function loadCurrentAvatar() {
       try {
         const uSnap = await getDoc(doc(db, "users", currentUser.uid));
@@ -75,9 +114,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
         console.error("Ошибка загрузки аватарки пользователя:", e);
       }
     }
-
     loadCurrentAvatar();
-
     return () => {
       isMounted = false;
     };
@@ -85,7 +122,6 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
 
   useEffect(() => {
     let isMounted = true;
-
     async function fetchFriends() {
       try {
         const snap = await getDocs(
@@ -104,20 +140,103 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
             });
           }
         }
-        if (isMounted) {
-          setFriends(list);
-        }
+        if (isMounted) setFriends(list);
       } catch (e) {
         console.error("Ошибка загрузки друзей:", e);
       }
     }
-
     fetchFriends();
-
     return () => {
       isMounted = false;
     };
   }, [currentUser.uid]);
+
+  useEffect(() => {
+    if (!selectedFriend || !selectedDateKey) return;
+
+    const commentsRef = collection(
+      db,
+      "users",
+      selectedFriend.uid,
+      "tracker_comments",
+      selectedDateKey,
+      "comments",
+    );
+    const q = query(commentsRef, orderBy("createdAt", "asc"));
+
+    const unsubscribe = onSnapshot(q, (snap) => {
+      const list = snap.docs.map(
+        (d) => ({ id: d.id, ...d.data() }) as DayComment,
+      );
+      setComments(list);
+    });
+
+    return () => {
+      unsubscribe();
+      setComments([]);
+    };
+  }, [selectedFriend, selectedDateKey]);
+
+  useEffect(() => {
+    if (!chatPartner) return;
+
+    const chatId = [currentUser.uid, chatPartner.uid].sort().join("_");
+    const msgRef = collection(db, "chats", chatId, "messages");
+    const q = query(msgRef, orderBy("createdAt", "asc"));
+
+    const unsubscribe = onSnapshot(q, (snap) => {
+      const list = snap.docs.map(
+        (d) => ({ id: d.id, ...d.data() }) as ChatMessage,
+      );
+      setMessages(list);
+    });
+
+    return () => {
+      unsubscribe();
+      setMessages([]);
+    };
+  }, [chatPartner, currentUser.uid]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // Идеальный контроль клавиатуры для iOS (Visual Viewport)
+  useEffect(() => {
+    if (!chatPartner) {
+      document.body.classList.remove("chat-is-open");
+      return;
+    }
+
+    document.body.classList.add("chat-is-open");
+
+    const updateHeight = () => {
+      const vh = window.visualViewport
+        ? window.visualViewport.height
+        : window.innerHeight;
+      document.documentElement.style.setProperty("--chat-vh", `${vh}px`);
+      window.scrollTo(0, 0);
+    };
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", updateHeight);
+      window.visualViewport.addEventListener("scroll", updateHeight);
+    } else {
+      window.addEventListener("resize", updateHeight);
+    }
+
+    updateHeight();
+
+    return () => {
+      document.body.classList.remove("chat-is-open");
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener("resize", updateHeight);
+        window.visualViewport.removeEventListener("scroll", updateHeight);
+      } else {
+        window.removeEventListener("resize", updateHeight);
+      }
+    };
+  }, [chatPartner]);
 
   const handleSearch = async (e: FormEvent) => {
     e.preventDefault();
@@ -181,6 +300,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
 
   const handleOpenFriend = async (friend: FriendProfile) => {
     setSelectedFriend(friend);
+    setSelectedDateKey(null);
     try {
       const recordsSnap = await getDoc(
         doc(db, "users", friend.uid, "tracker", "records"),
@@ -199,15 +319,77 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
 
   const handleRemoveFriend = async (friendUid: string) => {
     if (!window.confirm("Точно хочешь удалить из друзей?")) return;
-
     try {
       await deleteDoc(doc(db, "users", currentUser.uid, "friends", friendUid));
       await deleteDoc(doc(db, "users", friendUid, "friends", currentUser.uid));
-
       setFriends((prev) => prev.filter((f) => f.uid !== friendUid));
       setSelectedFriend(null);
     } catch (e) {
       console.error("Ошибка при удалении из друзей:", e);
+    }
+  };
+
+  const handleAddComment = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!newCommentText.trim() || !selectedFriend || !selectedDateKey) return;
+    try {
+      const commentsRef = collection(
+        db,
+        "users",
+        selectedFriend.uid,
+        "tracker_comments",
+        selectedDateKey,
+        "comments",
+      );
+      await addDoc(commentsRef, {
+        authorUid: currentUser.uid,
+        authorNickname: currentUser.displayName || "user",
+        authorAvatar: currentUserAvatar,
+        text: newCommentText.trim(),
+        createdAt: Date.now(),
+      });
+      setNewCommentText("");
+    } catch (e) {
+      console.error("Ошибка отправки комментария:", e);
+    }
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    if (!selectedFriend || !selectedDateKey) return;
+    if (!window.confirm("Удалить комментарий?")) return;
+    try {
+      await deleteDoc(
+        doc(
+          db,
+          "users",
+          selectedFriend.uid,
+          "tracker_comments",
+          selectedDateKey,
+          "comments",
+          commentId,
+        ),
+      );
+    } catch (e) {
+      console.error("Ошибка удаления комментария:", e);
+    }
+  };
+
+  const handleSendMessage = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!newMessage.trim() || !chatPartner) return;
+
+    const chatId = [currentUser.uid, chatPartner.uid].sort().join("_");
+    const msgRef = collection(db, "chats", chatId, "messages");
+
+    try {
+      await addDoc(msgRef, {
+        senderUid: currentUser.uid,
+        text: newMessage.trim(),
+        createdAt: Date.now(),
+      });
+      setNewMessage("");
+    } catch (e) {
+      console.error("Ошибка отправки сообщения:", e);
     }
   };
 
@@ -223,6 +405,65 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
     for (let d = 1; d <= daysInMonth; d++) arr.push(d);
     return arr;
   }, [year, month]);
+
+  if (chatPartner) {
+    return (
+      <div className="pt-chat-fullscreen">
+        <div className="pt-chat-nav">
+          <button className="pt-back-btn" onClick={() => setChatPartner(null)}>
+            ← Назад
+          </button>
+          <div className="pt-chat-title">
+            <span className="pt-chat-avatar">{chatPartner.avatar || "👑"}</span>
+            <span>@{chatPartner.nickname}</span>
+          </div>
+          <div style={{ width: 60 }} />
+        </div>
+
+        <div className="pt-chat-messages">
+          {messages.length === 0 ? (
+            <p className="pt-empty-comments">Напиши первое сообщение!</p>
+          ) : (
+            messages.map((m) => (
+              <div
+                key={m.id}
+                className={`pt-chat-bubble ${m.senderUid === currentUser.uid ? "me" : "them"}`}
+              >
+                <span>{m.text}</span>
+                <span className="pt-chat-time">
+                  {new Date(m.createdAt).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
+              </div>
+            ))
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        <form onSubmit={handleSendMessage} className="pt-chat-form">
+          <input
+            type="text"
+            placeholder="Сообщение..."
+            value={newMessage}
+            onChange={(e) => setNewMessage(e.target.value)}
+            onFocus={() => {
+              setTimeout(() => window.scrollTo(0, 0), 100);
+            }}
+            className="pt-chat-input"
+          />
+          <button
+            type="submit"
+            className="pt-comment-send-btn"
+            disabled={!newMessage.trim()}
+          >
+            ➤
+          </button>
+        </form>
+      </div>
+    );
+  }
 
   return (
     <div className="pt-app">
@@ -251,6 +492,18 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
             {selectedFriend.bio && (
               <p className="pt-bio-text">«{selectedFriend.bio}»</p>
             )}
+
+            <button
+              className="pt-btn pt-btn--primary pt-btn--compact"
+              style={{
+                margin: "16px auto 0",
+                display: "inline-block",
+                padding: "8px 20px",
+              }}
+              onClick={() => setChatPartner(selectedFriend)}
+            >
+              💬 Написать сообщение
+            </button>
           </div>
 
           <div className="cal-header">
@@ -284,13 +537,21 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                   <div key={`e-${idx}`} className="cal-cell cal-cell--empty" />
                 );
               }
-              const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+              const key = toDateKey(year, month, day);
               const rec = friendRecords[key];
+              const isSelected = selectedDateKey === key;
 
               return (
                 <div
                   key={key}
-                  className={`cal-cell cal-cell--display ${rec?.status ? `cal-cell--${rec.status}` : ""}`}
+                  onClick={() => setSelectedDateKey(key)}
+                  className={[
+                    "cal-cell cal-cell--display cal-cell--clickable",
+                    rec?.status && `cal-cell--${rec.status}`,
+                    isSelected && "cal-cell--selected-friend",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                 >
                   <span className="cal-cell__day">{day}</span>
                   {rec?.status && (
@@ -302,6 +563,78 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
               );
             })}
           </div>
+
+          {selectedDateKey && (
+            <div className="pt-comments-section">
+              <div className="pt-comments-header">
+                <h4>
+                  {selectedDateKey.split("-")[2]}{" "}
+                  {MONTHS[parseInt(selectedDateKey.split("-")[1]) - 1]}
+                </h4>
+                {friendRecords[selectedDateKey]?.status ? (
+                  <span className="pt-comments-status">
+                    {STATUS_EMOJI[friendRecords[selectedDateKey].status]}{" "}
+                    {STATUS_LABELS[friendRecords[selectedDateKey].status]}
+                  </span>
+                ) : (
+                  <span className="pt-comments-status">Нет записей</span>
+                )}
+              </div>
+
+              <div className="pt-comments-list">
+                {comments.length === 0 ? (
+                  <p className="pt-empty-comments">
+                    Пока нет комментариев. Будь первым!
+                  </p>
+                ) : (
+                  comments.map((comment) => (
+                    <div key={comment.id} className="pt-comment-bubble">
+                      <div className="pt-comment-avatar">
+                        {comment.authorAvatar}
+                      </div>
+                      <div className="pt-comment-content">
+                        <div className="pt-comment-top">
+                          <strong>@{comment.authorNickname}</strong>
+                          <span className="pt-comment-time">
+                            {new Date(comment.createdAt).toLocaleTimeString(
+                              [],
+                              { hour: "2-digit", minute: "2-digit" },
+                            )}
+                          </span>
+                        </div>
+                        <p>{comment.text}</p>
+                      </div>
+                      {comment.authorUid === currentUser.uid && (
+                        <button
+                          className="pt-comment-delete"
+                          onClick={() => handleDeleteComment(comment.id)}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <form onSubmit={handleAddComment} className="pt-comment-form">
+                <input
+                  type="text"
+                  placeholder="Написать комментарий..."
+                  value={newCommentText}
+                  onChange={(e) => setNewCommentText(e.target.value)}
+                  className="pt-input pt-comment-input"
+                />
+                <button
+                  type="submit"
+                  className="pt-comment-send-btn"
+                  disabled={!newCommentText.trim()}
+                >
+                  ➤
+                </button>
+              </form>
+            </div>
+          )}
         </div>
       ) : (
         <>
@@ -380,7 +713,26 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                         {f.bio && <p className="pt-friend-sub">{f.bio}</p>}
                       </div>
                     </div>
-                    <span className="pt-profile-menu-arrow">›</span>
+                    <div
+                      className="pt-friend-actions"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "12px",
+                      }}
+                    >
+                      <button
+                        className="pt-quick-chat-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedFriend(null);
+                          setChatPartner(f);
+                        }}
+                      >
+                        💬
+                      </button>
+                      <span className="pt-profile-menu-arrow">›</span>
+                    </div>
                   </div>
                 ))}
               </div>

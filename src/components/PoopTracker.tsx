@@ -5,9 +5,21 @@ import {
   forwardRef,
   useImperativeHandle,
 } from "react";
-import { doc, getDoc, setDoc } from "firebase/firestore";
-import { db } from "../firebase";
+import type { FormEvent } from "react";
+import {
+  doc,
+  getDoc,
+  setDoc,
+  addDoc,
+  deleteDoc,
+  collection,
+  onSnapshot,
+  query,
+  orderBy,
+} from "firebase/firestore";
+import { db, auth } from "../firebase";
 import "./PoopTracker.scss";
+import type { DayComment } from "./FriendsTab";
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -89,6 +101,10 @@ export const PoopTracker = forwardRef<PoopTrackerHandle, PoopTrackerProps>(
     const [step, setStep] = useState(1);
     const [draft, setDraft] = useState<Partial<DayRecord>>({});
 
+    const [comments, setComments] = useState<DayComment[]>([]);
+    const [newCommentText, setNewCommentText] = useState("");
+    const [currentUserAvatar, setCurrentUserAvatar] = useState("👑");
+
     const year = viewDate.getFullYear();
     const month = viewDate.getMonth();
     const now = new Date();
@@ -98,7 +114,6 @@ export const PoopTracker = forwardRef<PoopTrackerHandle, PoopTrackerProps>(
       now.getMonth(),
       now.getDate(),
     );
-
     const detailKey = toDateKey(
       detailDate.getFullYear(),
       detailDate.getMonth(),
@@ -121,12 +136,15 @@ export const PoopTracker = forwardRef<PoopTrackerHandle, PoopTrackerProps>(
 
     useEffect(() => {
       if (!userId) return;
-
       async function syncCloudData() {
         try {
+          const uSnap = await getDoc(doc(db, "users", userId));
+          if (uSnap.exists()) {
+            setCurrentUserAvatar(uSnap.data().avatar || "👑");
+          }
+
           const docRef = doc(db, "users", userId, "tracker", "records");
           const snap = await getDoc(docRef);
-
           if (snap.exists()) {
             const cloudData = snap.data() as Records;
             onUpdateRecords(cloudData);
@@ -145,9 +163,31 @@ export const PoopTracker = forwardRef<PoopTrackerHandle, PoopTrackerProps>(
           console.error("Ошибка синхронизации с базой:", err);
         }
       }
-
       syncCloudData();
     }, [userId, onUpdateRecords]);
+
+    useEffect(() => {
+      if (!userId || !detailKey) return;
+
+      const commentsRef = collection(
+        db,
+        "users",
+        userId,
+        "tracker_comments",
+        detailKey,
+        "comments",
+      );
+      const q = query(commentsRef, orderBy("createdAt", "asc"));
+
+      const unsubscribe = onSnapshot(q, (snap) => {
+        const list = snap.docs.map(
+          (d) => ({ id: d.id, ...d.data() }) as DayComment,
+        );
+        setComments(list);
+      });
+
+      return () => unsubscribe();
+    }, [userId, detailKey]);
 
     useEffect(() => {
       if (selectedDate) {
@@ -260,6 +300,12 @@ export const PoopTracker = forwardRef<PoopTrackerHandle, PoopTrackerProps>(
       setViewDate(new Date(d.getFullYear(), d.getMonth(), 1));
     };
 
+    const handleSelectDay = (day: number) => {
+      const newDate = new Date(year, month, day);
+      if (newDate > now) return;
+      setDetailDate(newDate);
+    };
+
     const playSound = () => {
       const soundPref =
         localStorage.getItem("pt-sound-pref") || "metalpipe.mp3";
@@ -289,6 +335,51 @@ export const PoopTracker = forwardRef<PoopTrackerHandle, PoopTrackerProps>(
       const next = { ...records };
       delete next[keyToClear];
       onUpdateRecords(next);
+    };
+
+    const handleAddComment = async (e: FormEvent) => {
+      e.preventDefault();
+      if (!newCommentText.trim() || !detailKey) return;
+      try {
+        const commentsRef = collection(
+          db,
+          "users",
+          userId,
+          "tracker_comments",
+          detailKey,
+          "comments",
+        );
+        await addDoc(commentsRef, {
+          authorUid: userId,
+          authorNickname: auth.currentUser?.displayName || "user",
+          authorAvatar: currentUserAvatar,
+          text: newCommentText.trim(),
+          createdAt: Date.now(),
+        });
+        setNewCommentText("");
+      } catch (e) {
+        console.error("Ошибка отправки комментария:", e);
+      }
+    };
+
+    const handleDeleteComment = async (commentId: string) => {
+      if (!detailKey) return;
+      if (!window.confirm("Удалить комментарий?")) return;
+      try {
+        await deleteDoc(
+          doc(
+            db,
+            "users",
+            userId,
+            "tracker_comments",
+            detailKey,
+            "comments",
+            commentId,
+          ),
+        );
+      } catch (e) {
+        console.error("Ошибка удаления комментария:", e);
+      }
     };
 
     return (
@@ -361,15 +452,18 @@ export const PoopTracker = forwardRef<PoopTrackerHandle, PoopTrackerProps>(
               const key = toDateKey(year, month, day);
               const record = records[key];
               const isToday = key === todayKey;
+              const isSelected = key === detailKey;
 
               return (
                 <div
                   key={key}
+                  onClick={() => handleSelectDay(day)}
                   className={[
                     "cal-cell",
                     "cal-cell--display",
+                    "cal-cell--clickable",
                     isToday && "cal-cell--today",
-                    key === detailKey && "cal-cell--selected",
+                    isSelected && "cal-cell--selected",
                     record?.status && `cal-cell--${record.status}`,
                   ]
                     .filter(Boolean)
@@ -459,6 +553,56 @@ export const PoopTracker = forwardRef<PoopTrackerHandle, PoopTrackerProps>(
                 🗑️ Удалить запись
               </button>
             )}
+          </div>
+
+          <div className="pt-owner-comments-wrap">
+            <h4 className="pt-owner-comments-title">
+              Комментарии ({comments.length})
+            </h4>
+            <div className="pt-comments-list">
+              {comments.map((comment) => (
+                <div key={comment.id} className="pt-comment-bubble">
+                  <div className="pt-comment-avatar">
+                    {comment.authorAvatar}
+                  </div>
+                  <div className="pt-comment-content">
+                    <div className="pt-comment-top">
+                      <strong>@{comment.authorNickname}</strong>
+                      <span className="pt-comment-time">
+                        {new Date(comment.createdAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </div>
+                    <p>{comment.text}</p>
+                  </div>
+                  <button
+                    className="pt-comment-delete"
+                    onClick={() => handleDeleteComment(comment.id)}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <form onSubmit={handleAddComment} className="pt-comment-form">
+              <input
+                type="text"
+                placeholder="Ответить..."
+                value={newCommentText}
+                onChange={(e) => setNewCommentText(e.target.value)}
+                className="pt-input pt-comment-input"
+              />
+              <button
+                type="submit"
+                className="pt-comment-send-btn"
+                disabled={!newCommentText.trim()}
+              >
+                ➤
+              </button>
+            </form>
           </div>
         </div>
 
