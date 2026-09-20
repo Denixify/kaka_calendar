@@ -9,17 +9,21 @@ import type { FormEvent } from "react";
 import {
   doc,
   getDoc,
+  getDocs,
   setDoc,
   addDoc,
+  updateDoc,
   deleteDoc,
   collection,
   onSnapshot,
   query,
   orderBy,
+  where,
 } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import "./PoopTracker.scss";
 import type { DayComment } from "./FriendsTab";
+import { calculateDuelScore } from "../utils/duelScoring";
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -194,15 +198,18 @@ export const PoopTracker = forwardRef<PoopTrackerHandle, PoopTrackerProps>(
         document.body.style.overflow = "hidden";
         document.body.style.position = "fixed";
         document.body.style.width = "100%";
+        document.body.classList.add("modal-is-open");
       } else {
         document.body.style.overflow = "";
         document.body.style.position = "";
         document.body.style.width = "";
+        document.body.classList.remove("modal-is-open");
       }
       return () => {
         document.body.style.overflow = "";
         document.body.style.position = "";
         document.body.style.width = "";
+        document.body.classList.remove("modal-is-open");
       };
     }, [selectedDate]);
 
@@ -276,7 +283,7 @@ export const PoopTracker = forwardRef<PoopTrackerHandle, PoopTrackerProps>(
         }
       }
 
-      return { streak: Math.min(streak, 7), isLost: false, isBeginner };
+      return { streak, isLost: false, isBeginner };
     }, [records]);
 
     const handleGoToday = () => {
@@ -329,6 +336,38 @@ export const PoopTracker = forwardRef<PoopTrackerHandle, PoopTrackerProps>(
 
       onUpdateRecords(next);
       setSelectedDate(null);
+
+      (async () => {
+        try {
+          const q1 = query(
+            collection(db, "duels"),
+            where("player1", "==", userId),
+            where("status", "==", "active"),
+          );
+          const q2 = query(
+            collection(db, "duels"),
+            where("player2", "==", userId),
+            where("status", "==", "active"),
+          );
+
+          const [s1, s2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+          const activeDocs = [...s1.docs, ...s2.docs];
+
+          for (const d of activeDocs) {
+            const data = d.data();
+            const myScore = calculateDuelScore(
+              next,
+              data.startDate,
+              data.endDate,
+            );
+            await updateDoc(doc(db, "duels", d.id), {
+              [`scores.${userId}`]: myScore,
+            });
+          }
+        } catch (err) {
+          console.error("Ошибка синхронизации баллов дуэли:", err);
+        }
+      })();
     };
 
     const clearDay = (keyToClear: string) => {
@@ -391,9 +430,18 @@ export const PoopTracker = forwardRef<PoopTrackerHandle, PoopTrackerProps>(
             <p>Слежу за тобой</p>
           </div>
           <div className="pt-header__actions">
-            <div className={`pt-streak pt-streak--${streakInfo.streak}`}>
+            <div
+              className={`pt-streak pt-streak--${Math.min(streakInfo.streak, 7)}`}
+            >
               <span className="pt-streak__icon" />
-              <span>{streakInfo.streak}/7</span>
+              <span>
+                {streakInfo.streak}{" "}
+                {streakInfo.streak === 1
+                  ? "день"
+                  : streakInfo.streak < 5
+                    ? "дня"
+                    : "дней"}
+              </span>
             </div>
           </div>
         </header>

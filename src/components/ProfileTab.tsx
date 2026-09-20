@@ -12,6 +12,7 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import type { Records } from "./PoopTracker";
+import { ACHIEVEMENTS, ACHIEVEMENTS_MAP } from "../constants/achievements";
 
 function toDateKey(year: number, month: number, day: number): string {
   return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -43,147 +44,6 @@ const PRESET_AVATARS = [
   "🔥",
 ];
 
-const ACHIEVEMENTS = [
-  {
-    id: "streak_1",
-    name: "Первая кровь... тьфу, стул",
-    desc: "Сделай стрик 1 день",
-    icon: "🔥",
-  },
-  {
-    id: "streak_2",
-    name: "Уверенный шаг",
-    desc: "Сделай стрик 2 дня",
-    icon: "🔥",
-  },
-  {
-    id: "streak_3",
-    name: "Вошел во вкус",
-    desc: "Сделай стрик 3 дня",
-    icon: "🔥",
-  },
-  {
-    id: "streak_4",
-    name: "Стабильность — признак мастерства",
-    desc: "Сделай стрик 4 дня",
-    icon: "🔥",
-  },
-  {
-    id: "streak_5",
-    name: "Пятидневный марафон",
-    desc: "Сделай стрик 5 дней",
-    icon: "🔥",
-  },
-  {
-    id: "streak_6",
-    name: "Почти идеал",
-    desc: "Сделай стрик 6 дней",
-    icon: "🔥",
-  },
-  {
-    id: "streak_7",
-    name: "Король Унитаза",
-    desc: "Закрой полный стрик из 7 дней",
-    icon: "👑",
-  },
-  {
-    id: "lost_streak",
-    name: "Потрачено",
-    desc: "Обидно потеряй стрик",
-    icon: "💀",
-  },
-  {
-    id: "magic_restore",
-    name: "Магия вне Хогвартса",
-    desc: "Воспользуйся секретной кнопкой восстановления стрика",
-    icon: "🪄",
-  },
-  {
-    id: "machine_gun",
-    name: "Пулемёт",
-    desc: "Сходи в туалет больше 1 раза за день",
-    icon: "🚀",
-  },
-  {
-    id: "liquid_gold",
-    name: "Дал жиденького",
-    desc: "Выбери вариант качества «Понос»",
-    icon: "💦",
-  },
-  {
-    id: "fatality",
-    name: "Fatality!",
-    desc: "Схватка была напряженной... Выбери вариант качества «Твердый»",
-    icon: "🧱",
-  },
-  {
-    id: "perfect_soft",
-    name: "Мягкая посадка",
-    desc: "Идеальный баланс. Выбери вариант качества «Мягкий»",
-    icon: "☁️",
-  },
-  {
-    id: "schrodinger",
-    name: "Стул Шрёдингера",
-    desc: "Он как бы есть, но какой он — загадка... Выбери качество «Неопределенный»",
-    icon: "📦",
-  },
-  {
-    id: "stranger_things",
-    name: "Плохой день",
-    desc: "Сегодня обойдемся без смеха... Отметь «Без походов»",
-    icon: "😭",
-  },
-  {
-    id: "soup_time",
-    name: "Нужно покушать супчика",
-    desc: "Надеюсь, в следующий раз будет лучше... Отметь плохой поход (😢)",
-    icon: "🥣",
-  },
-  {
-    id: "not_great_not_terrible",
-    name: "Полёт нормальный",
-    desc: "Не отлично, но и не ужасно. Отметь статус «Нормально» (😐)",
-    icon: "👌",
-  },
-  {
-    id: "chamber_of_secrets",
-    name: "Самый лучший день!",
-    desc: "Это было настолько хорошо, что я тебе прям завидую... Отметь статус «Отлично» (😊)",
-    icon: "😎",
-  },
-  {
-    id: "friend_1",
-    name: "Первый свидетель",
-    desc: "Теперь тебе есть с кем обсудить утренний кофе. Добавь своего первого друга",
-    icon: "👀",
-  },
-  {
-    id: "friend_2",
-    name: "Сообразим на троих?",
-    desc: "Собери 2 друзей в свою ленту. (Ведь третий — это ты!)",
-    icon: "🍻",
-  },
-  {
-    id: "friend_3",
-    name: "Кружок по интересам",
-    desc: "Пора создавать тематический групповой чат. Собери 3 друзей",
-    icon: "🤝",
-  },
-  {
-    id: "friend_4",
-    name: "Четыре всадника",
-    desc: "Кажется, Апокалипсис уже близко! Добавь 4 друзей",
-    icon: "🐎",
-  },
-  {
-    id: "friend_5",
-    name: "Лидер мнений",
-    desc: "Настоящий кака-блогер, пора продавать рекламу! Собери 5 друзей",
-    icon: "🌟",
-  },
-];
-
 const BASE = import.meta.env.BASE_URL;
 
 interface FriendRequest {
@@ -207,10 +67,16 @@ export function ProfileTab({
   onRestoreStreak,
   unlockedAchievements,
 }: ProfileTabProps) {
-  const [bio, setBio] = useState("");
-  const [avatar, setAvatar] = useState("👑");
+  const [bio, setBio] = useState(() => {
+    return localStorage.getItem(`pt-bio-cache-${currentUser.uid}`) || "";
+  });
+  const [avatar, setAvatar] = useState(() => {
+    return localStorage.getItem(`pt-avatar-cache-${currentUser.uid}`) || "👑";
+  });
   const [isEditingBio, setIsEditingBio] = useState(false);
-  const [bioDraft, setBioDraft] = useState("");
+  const [bioDraft, setBioDraft] = useState(() => {
+    return localStorage.getItem(`pt-bio-cache-${currentUser.uid}`) || "";
+  });
   const [isSavingBio, setIsSavingBio] = useState(false);
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -219,9 +85,19 @@ export function ProfileTab({
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
   const [requests, setRequests] = useState<FriendRequest[]>([]);
 
+  const [featuredAchievementId, setFeaturedAchievementId] = useState<
+    string | null
+  >(() => {
+    return localStorage.getItem(`pt-featured-ach-${currentUser.uid}`) || null;
+  });
+
   const [soundPref, setSoundPref] = useState<string>(
     () => localStorage.getItem("pt-sound-pref") || "metalpipe.mp3",
   );
+
+  const [duelWins, setDuelWins] = useState<number>(() => {
+    return Number(localStorage.getItem(`pt-duel-wins-${currentUser.uid}`) || 0);
+  });
 
   const [nowTime] = useState(() => new Date().getTime());
 
@@ -235,15 +111,18 @@ export function ProfileTab({
       document.body.style.overflow = "hidden";
       document.body.style.position = "fixed";
       document.body.style.width = "100%";
+      document.body.classList.add("modal-is-open");
     } else {
       document.body.style.overflow = "";
       document.body.style.position = "";
       document.body.style.width = "";
+      document.body.classList.remove("modal-is-open");
     }
     return () => {
       document.body.style.overflow = "";
       document.body.style.position = "";
       document.body.style.width = "";
+      document.body.classList.remove("modal-is-open");
     };
   }, [isSettingsOpen, isAchievModalOpen, isRequestsOpen, isAvatarModalOpen]);
 
@@ -255,12 +134,35 @@ export function ProfileTab({
         const userSnap = await getDoc(doc(db, "users", currentUser.uid));
         if (userSnap.exists() && isMounted) {
           const data = userSnap.data();
-          if (data.bio) {
+          if (data.bio !== undefined) {
             setBio(data.bio);
             setBioDraft(data.bio);
+            localStorage.setItem(`pt-bio-cache-${currentUser.uid}`, data.bio);
           }
           if (data.avatar) {
             setAvatar(data.avatar);
+            localStorage.setItem(
+              `pt-avatar-cache-${currentUser.uid}`,
+              data.avatar,
+            );
+          }
+          if (data.duelWins !== undefined) {
+            setDuelWins(data.duelWins);
+            localStorage.setItem(
+              `pt-duel-wins-${currentUser.uid}`,
+              String(data.duelWins),
+            );
+          }
+          if (data.featuredAchievementId !== undefined) {
+            setFeaturedAchievementId(data.featuredAchievementId);
+            if (data.featuredAchievementId) {
+              localStorage.setItem(
+                `pt-featured-ach-${currentUser.uid}`,
+                data.featuredAchievementId,
+              );
+            } else {
+              localStorage.removeItem(`pt-featured-ach-${currentUser.uid}`);
+            }
           }
         }
       } catch (e) {
@@ -303,8 +205,27 @@ export function ProfileTab({
     };
   }, [currentUser.uid]);
 
+  const handleToggleFeatured = async (achId: string) => {
+    const nextId = featuredAchievementId === achId ? null : achId;
+    setFeaturedAchievementId(nextId);
+    if (nextId) {
+      localStorage.setItem(`pt-featured-ach-${currentUser.uid}`, nextId);
+    } else {
+      localStorage.removeItem(`pt-featured-ach-${currentUser.uid}`);
+    }
+
+    try {
+      await updateDoc(doc(db, "users", currentUser.uid), {
+        featuredAchievementId: nextId,
+      });
+    } catch (e) {
+      console.error("Ошибка обновления закрепленного достижения:", e);
+    }
+  };
+
   const handleSelectAvatar = async (selectedEmoji: string) => {
     setAvatar(selectedEmoji);
+    localStorage.setItem(`pt-avatar-cache-${currentUser.uid}`, selectedEmoji);
     setIsAvatarModalOpen(false);
     try {
       await updateDoc(doc(db, "users", currentUser.uid), {
@@ -316,12 +237,14 @@ export function ProfileTab({
   };
 
   const handleSaveBio = async () => {
+    const cleanBio = bioDraft.trim();
     setIsSavingBio(true);
     try {
       await updateDoc(doc(db, "users", currentUser.uid), {
-        bio: bioDraft.trim(),
+        bio: cleanBio,
       });
-      setBio(bioDraft.trim());
+      setBio(cleanBio);
+      localStorage.setItem(`pt-bio-cache-${currentUser.uid}`, cleanBio);
       setIsEditingBio(false);
     } catch (e) {
       console.error("Ошибка сохранения bio:", e);
@@ -416,7 +339,7 @@ export function ProfileTab({
       }
     }
 
-    return { streak: Math.min(streak, 7), isLost: false, isBeginner };
+    return { streak, isLost: false, isBeginner };
   }, [records]);
 
   const cooldownDaysLeft = Math.ceil(
@@ -438,6 +361,22 @@ export function ProfileTab({
         <h2 className="pt-profile-name">
           @{currentUser.displayName || "user"}
         </h2>
+
+        {featuredAchievementId && ACHIEVEMENTS_MAP[featuredAchievementId] && (
+          <div
+            className="pt-featured-badge"
+            onClick={() => handleToggleFeatured(featuredAchievementId)}
+            title="Нажми, чтобы открепить"
+          >
+            <span className="pt-featured-badge__icon">
+              {ACHIEVEMENTS_MAP[featuredAchievementId].icon}
+            </span>
+            <span className="pt-featured-badge__title">
+              {ACHIEVEMENTS_MAP[featuredAchievementId].name}
+            </span>
+          </div>
+        )}
+
         <p className="pt-profile-desc">Синхронизация с облаком активна</p>
 
         <div className="pt-bio-block">
@@ -482,6 +421,18 @@ export function ProfileTab({
               <button className="pt-bio-edit-icon" title="Редактировать bio">
                 ✏️
               </button>
+            </div>
+          )}
+
+          {duelWins > 0 && (
+            <div className="pt-duel-trophy-badge" title="Победы в дуэлях">
+              <span className="pt-duel-trophy-icon">
+                {duelWins >= 10 ? "🏆" : duelWins >= 5 ? "🥇" : "⚔️"}
+              </span>
+              <span className="pt-duel-trophy-count">
+                {duelWins}{" "}
+                {duelWins === 1 ? "победа" : duelWins < 5 ? "победы" : "побед"}
+              </span>
             </div>
           )}
         </div>
@@ -697,6 +648,8 @@ export function ProfileTab({
             <div className="pt-achievements-list">
               {ACHIEVEMENTS.map((ach) => {
                 const isUnlocked = unlockedAchievements.includes(ach.id);
+                const isPinned = featuredAchievementId === ach.id;
+
                 return (
                   <div
                     key={ach.id}
@@ -714,6 +667,21 @@ export function ProfileTab({
                       </h4>
                       <p className="pt-achiev-card__desc">{ach.desc}</p>
                     </div>
+
+                    {isUnlocked && (
+                      <button
+                        type="button"
+                        className={`pt-pin-btn ${isPinned ? "pinned" : ""}`}
+                        onClick={() => handleToggleFeatured(ach.id)}
+                        title={
+                          isPinned
+                            ? "Открепить от профиля"
+                            : "Закрепить в профиле"
+                        }
+                      >
+                        📌
+                      </button>
+                    )}
                   </div>
                 );
               })}

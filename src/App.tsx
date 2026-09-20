@@ -24,6 +24,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"home" | "friends" | "profile">(
     "home",
   );
+  const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
 
   const trackerRef = useRef<PoopTrackerHandle>(null);
 
@@ -182,7 +183,7 @@ export default function App() {
       }
     }
 
-    return { streak: Math.min(streak, 7), isLost: false };
+    return { streak, isLost: false };
   }, [records]);
 
   useEffect(() => {
@@ -319,7 +320,12 @@ export default function App() {
           />
         )}
 
-        {activeTab === "friends" && <FriendsTab currentUser={currentUser} />}
+        {activeTab === "friends" && (
+          <FriendsTab
+            currentUser={currentUser}
+            onUnreadChange={setHasUnreadMessages}
+          />
+        )}
 
         {activeTab === "profile" && (
           <ProfileTab
@@ -332,7 +338,11 @@ export default function App() {
         )}
       </main>
 
-      <BottomNavBar activeTab={activeTab} onChangeTab={handleTabChange} />
+      <BottomNavBar
+        activeTab={activeTab}
+        onChangeTab={handleTabChange}
+        hasUnreadFriends={hasUnreadMessages}
+      />
 
       {networkToast && (
         <div className={`pt-toast pt-toast--${networkToast}`}>
