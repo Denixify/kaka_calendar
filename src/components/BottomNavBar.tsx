@@ -1,13 +1,15 @@
 interface BottomNavBarProps {
   activeTab: "home" | "friends" | "profile";
   onChangeTab: (tab: "home" | "friends" | "profile") => void;
-  hasUnreadFriends?: boolean;
+  hasUnreadMessages?: boolean;
+  hasPendingDuels?: boolean;
 }
 
 export function BottomNavBar({
   activeTab,
   onChangeTab,
-  hasUnreadFriends = false,
+  hasUnreadMessages = false,
+  hasPendingDuels = false,
 }: BottomNavBarProps) {
   return (
     <nav className="pt-nav-capsule-wrapper">
@@ -26,7 +28,20 @@ export function BottomNavBar({
         >
           <span className="pt-nav-icon pt-nav-icon--relative">
             💬
-            {hasUnreadFriends && <span className="pt-badge-dot" />}
+            <span className="pt-nav-badges-group">
+              {hasUnreadMessages && (
+                <span
+                  className="pt-badge-dot pt-badge-dot--msg"
+                  title="Новые сообщения"
+                />
+              )}
+              {hasPendingDuels && (
+                <span
+                  className="pt-badge-dot pt-badge-dot--duel"
+                  title="Вызов на дуэль!"
+                />
+              )}
+            </span>
           </span>
           <span className="pt-nav-label">Друзья</span>
         </button>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import type { User } from "firebase/auth";
 import { signOut } from "firebase/auth";
 import {
@@ -9,6 +9,8 @@ import {
   getDocs,
   deleteDoc,
   setDoc,
+  query,
+  where,
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import type { Records } from "./PoopTracker";
@@ -52,6 +54,16 @@ interface FriendRequest {
   fromAvatar?: string;
 }
 
+interface FinishedDuel {
+  id: string;
+  partnerNickname: string;
+  partnerAvatar: string;
+  myScore: number;
+  partnerScore: number;
+  winnerId: string | null;
+  endedAt: number;
+}
+
 interface ProfileTabProps {
   currentUser: User;
   records: Records;
@@ -83,7 +95,11 @@ export function ProfileTab({
   const [isAchievModalOpen, setIsAchievModalOpen] = useState(false);
   const [isRequestsOpen, setIsRequestsOpen] = useState(false);
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
+  const [isDuelHistoryOpen, setIsDuelHistoryOpen] = useState(false);
+
   const [requests, setRequests] = useState<FriendRequest[]>([]);
+  const [duelHistory, setDuelHistory] = useState<FinishedDuel[]>([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
 
   const [featuredAchievementId, setFeaturedAchievementId] = useState<
     string | null
@@ -102,12 +118,14 @@ export function ProfileTab({
   const [nowTime] = useState(() => new Date().getTime());
 
   useEffect(() => {
-    if (
+    const isAnyModalOpen =
       isSettingsOpen ||
       isAchievModalOpen ||
       isRequestsOpen ||
-      isAvatarModalOpen
-    ) {
+      isAvatarModalOpen ||
+      isDuelHistoryOpen;
+
+    if (isAnyModalOpen) {
       document.body.style.overflow = "hidden";
       document.body.style.position = "fixed";
       document.body.style.width = "100%";
@@ -118,13 +136,20 @@ export function ProfileTab({
       document.body.style.width = "";
       document.body.classList.remove("modal-is-open");
     }
+
     return () => {
       document.body.style.overflow = "";
       document.body.style.position = "";
       document.body.style.width = "";
       document.body.classList.remove("modal-is-open");
     };
-  }, [isSettingsOpen, isAchievModalOpen, isRequestsOpen, isAvatarModalOpen]);
+  }, [
+    isSettingsOpen,
+    isAchievModalOpen,
+    isRequestsOpen,
+    isAvatarModalOpen,
+    isDuelHistoryOpen,
+  ]);
 
   useEffect(() => {
     let isMounted = true;
@@ -203,6 +228,62 @@ export function ProfileTab({
     return () => {
       isMounted = false;
     };
+  }, [currentUser.uid]);
+
+  const handleOpenDuelHistory = useCallback(async () => {
+    setIsDuelHistoryOpen(true);
+    setIsHistoryLoading(true);
+
+    try {
+      const q1 = query(
+        collection(db, "duels"),
+        where("player1", "==", currentUser.uid),
+        where("status", "==", "finished"),
+      );
+      const q2 = query(
+        collection(db, "duels"),
+        where("player2", "==", currentUser.uid),
+        where("status", "==", "finished"),
+      );
+
+      const [s1, s2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+      const allDocs = [...s1.docs, ...s2.docs];
+
+      const list: FinishedDuel[] = [];
+
+      for (const d of allDocs) {
+        const data = d.data();
+        const partnerUid =
+          data.player1 === currentUser.uid ? data.player2 : data.player1;
+
+        let partnerName = "Игрок";
+        let partnerAvatar = "👑";
+
+        const uSnap = await getDoc(doc(db, "users", partnerUid));
+        if (uSnap.exists()) {
+          const uData = uSnap.data();
+          partnerName = uData.nickname || "user";
+          partnerAvatar = uData.avatar || "👑";
+        }
+
+        list.push({
+          id: d.id,
+          partnerNickname: partnerName,
+          partnerAvatar: partnerAvatar,
+          myScore: data.scores?.[currentUser.uid] || 0,
+          partnerScore: data.scores?.[partnerUid] || 0,
+          winnerId: data.winnerId || null,
+          endedAt: data.endDate || data.createdAt || new Date().getTime(),
+        });
+      }
+
+      list.sort((a, b) => b.endedAt - a.endedAt);
+      setDuelHistory(list);
+    } catch (err) {
+      console.error("Ошибка загрузки истории дуэлей:", err);
+    } finally {
+      setIsHistoryLoading(false);
+    }
   }, [currentUser.uid]);
 
   const handleToggleFeatured = async (achId: string) => {
@@ -425,13 +506,22 @@ export function ProfileTab({
           )}
 
           {duelWins > 0 && (
-            <div className="pt-duel-trophy-badge" title="Победы в дуэлях">
+            <div
+              className="pt-duel-trophy-badge pt-clickable"
+              onClick={handleOpenDuelHistory}
+              title="Нажми, чтобы открыть историю дуэлей"
+            >
               <span className="pt-duel-trophy-icon">
                 {duelWins >= 10 ? "🏆" : duelWins >= 5 ? "🥇" : "⚔️"}
               </span>
               <span className="pt-duel-trophy-count">
                 {duelWins}{" "}
                 {duelWins === 1 ? "победа" : duelWins < 5 ? "победы" : "побед"}
+              </span>
+              <span
+                style={{ fontSize: "11px", opacity: 0.7, marginLeft: "2px" }}
+              >
+                ›
               </span>
             </div>
           )}
@@ -446,6 +536,18 @@ export function ProfileTab({
             <span className="pt-profile-menu-text">Заявки в друзья</span>
             {requests.length > 0 && (
               <span className="pt-badge-inline">{requests.length}</span>
+            )}
+            <span className="pt-profile-menu-arrow">›</span>
+          </button>
+
+          <button
+            className="pt-profile-menu-item"
+            onClick={handleOpenDuelHistory}
+          >
+            <span className="pt-profile-menu-icon">⚔️</span>
+            <span className="pt-profile-menu-text">История дуэлей</span>
+            {duelWins > 0 && (
+              <span className="pt-profile-menu-badge">{duelWins}</span>
             )}
             <span className="pt-profile-menu-arrow">›</span>
           </button>
@@ -548,6 +650,78 @@ export function ProfileTab({
               <button
                 className="pt-modal__close"
                 onClick={() => setIsRequestsOpen(false)}
+              >
+                Закрыть
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isDuelHistoryOpen && (
+        <div className="pt-overlay" onClick={() => setIsDuelHistoryOpen(false)}>
+          <div
+            className="pt-modal pt-modal--achievs"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="pt-modal__handle" />
+            <h3 className="pt-modal__title">История дуэлей 📜</h3>
+
+            {isHistoryLoading ? (
+              <div className="pt-duel-waiting">Загрузка архива...</div>
+            ) : duelHistory.length === 0 ? (
+              <p className="pt-empty-friends">
+                Завершённых дуэлей пока нет. Самое время бросить кому-нибудь
+                вызов!
+              </p>
+            ) : (
+              <div className="pt-duel-history-list">
+                {duelHistory.map((h) => {
+                  const isWin = h.winnerId === currentUser.uid;
+                  const isDraw = !h.winnerId;
+
+                  return (
+                    <div
+                      key={h.id}
+                      className={`pt-duel-history-item ${isWin ? "win" : isDraw ? "draw" : "loss"}`}
+                    >
+                      <div className="pt-friend-info">
+                        <span className="pt-friend-avatar">
+                          {h.partnerAvatar}
+                        </span>
+                        <div>
+                          <strong>@{h.partnerNickname}</strong>
+                          <span className="pt-duel-history-date">
+                            {new Date(h.endedAt).toLocaleDateString([], {
+                              day: "numeric",
+                              month: "short",
+                            })}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="pt-duel-history-score">
+                        <span className="score">
+                          {h.myScore} : {h.partnerScore}
+                        </span>
+                        <span className="badge">
+                          {isDraw
+                            ? "Ничья 🤝"
+                            : isWin
+                              ? "Победа 🏆"
+                              : "Поражение 💀"}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="pt-modal__actions">
+              <button
+                className="pt-modal__close"
+                onClick={() => setIsDuelHistoryOpen(false)}
               >
                 Закрыть
               </button>

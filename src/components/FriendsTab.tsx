@@ -82,7 +82,6 @@ interface ChatMessage {
 
 interface FriendsTabProps {
   currentUser: User;
-  onUnreadChange?: (hasUnread: boolean) => void;
 }
 
 interface ActiveDuelCardProps {
@@ -99,6 +98,7 @@ interface DuelData {
   endDate: number;
   scores?: Record<string, number>;
   winnerId?: string | null;
+  surrenderedBy?: string;
 }
 
 function DuelCardView({
@@ -138,7 +138,7 @@ function DuelCardView({
           if (winner) {
             getDoc(doc(db, "users", winner)).then((uSnap) => {
               const currentWins = uSnap.data()?.duelWins || 0;
-              updateDoc(doc(db, "users", winner!), {
+              updateDoc(doc(db, "users", winner), {
                 duelWins: currentWins + 1,
               }).catch(() => {});
             });
@@ -152,6 +152,32 @@ function DuelCardView({
       unsub();
     };
   }, [duelId]);
+
+  const handleSurrender = async () => {
+    if (!duel || duel.status !== "active") return;
+    const isConfirmed = window.confirm(
+      `Точно хочешь сдаться? Победа автоматически достанется @${partnerNickname}!`,
+    );
+    if (!isConfirmed) return;
+
+    const winner = duel.player1 === currentUserId ? duel.player2 : duel.player1;
+
+    try {
+      await updateDoc(doc(db, "duels", duelId), {
+        status: "finished",
+        winnerId: winner,
+        surrenderedBy: currentUserId,
+      });
+
+      const uSnap = await getDoc(doc(db, "users", winner));
+      const currentWins = uSnap.data()?.duelWins || 0;
+      await updateDoc(doc(db, "users", winner), {
+        duelWins: currentWins + 1,
+      });
+    } catch (e) {
+      console.error("Ошибка при сдаче:", e);
+    }
+  };
 
   if (!duel) {
     return <div className="pt-duel-waiting">Загрузка данных дуэли...</div>;
@@ -188,7 +214,7 @@ function DuelCardView({
             ? "🤝 Ничья! Силы равны!"
             : isWinner
               ? "🏆 Твоя безоговорочная победа!"
-              : `💀 @${partnerNickname} оказался здоровее.`}
+              : `💀 @${partnerNickname} оказался победителем.`}
         </p>
       </div>
     );
@@ -211,15 +237,24 @@ function DuelCardView({
           <span className="score">{partnerScore}</span>
         </div>
       </div>
+
       <div className="pt-duel-timer">
         ⏳ Осталось {daysLeft}{" "}
         {daysLeft === 1 ? "день" : daysLeft < 5 ? "дня" : "дней"}
       </div>
+
+      <button
+        type="button"
+        className="pt-duel-surrender-btn"
+        onClick={handleSurrender}
+      >
+        🏳️ Сдаться
+      </button>
     </div>
   );
 }
 
-export function FriendsTab({ currentUser, onUnreadChange }: FriendsTabProps) {
+export function FriendsTab({ currentUser }: FriendsTabProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResult, setSearchResult] = useState<FriendProfile | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -259,6 +294,9 @@ export function FriendsTab({ currentUser, onUnreadChange }: FriendsTabProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const [unreadFriendUids, setUnreadFriendUids] = useState<string[]>([]);
+  const [pendingDuelFriendUids, setPendingDuelFriendUids] = useState<string[]>(
+    [],
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -319,29 +357,33 @@ export function FriendsTab({ currentUser, onUnreadChange }: FriendsTabProps) {
   }, [currentUser.uid]);
 
   useEffect(() => {
-    if (friends.length === 0) {
-      return;
-    }
+    if (friends.length === 0) return;
 
     const unsubscribes: (() => void)[] = [];
     const unreadMap: Record<string, boolean> = {};
+    const duelMap: Record<string, boolean> = {};
 
     friends.forEach((friend) => {
       const chatId = [currentUser.uid, friend.uid].sort().join("_");
       const msgRef = collection(db, "chats", chatId, "messages");
-      const q = query(
-        msgRef,
-        where("senderUid", "==", friend.uid),
-        where("read", "==", false),
-      );
+      const q = query(msgRef, where("senderUid", "==", friend.uid));
 
       const unsub = onSnapshot(q, (snap) => {
-        unreadMap[friend.uid] = !snap.empty;
-        const activeUnreads = Object.keys(unreadMap).filter(
-          (uid) => unreadMap[uid],
+        unreadMap[friend.uid] = snap.docs.some(
+          (d) => d.data().read === false && d.data().type !== "duel_invite",
         );
-        setUnreadFriendUids(activeUnreads);
-        onUnreadChange?.(activeUnreads.length > 0);
+        duelMap[friend.uid] = snap.docs.some(
+          (d) =>
+            d.data().type === "duel_invite" &&
+            d.data().duelStatus === "pending",
+        );
+
+        setUnreadFriendUids(
+          Object.keys(unreadMap).filter((uid) => unreadMap[uid]),
+        );
+        setPendingDuelFriendUids(
+          Object.keys(duelMap).filter((uid) => duelMap[uid]),
+        );
       });
 
       unsubscribes.push(unsub);
@@ -350,9 +392,9 @@ export function FriendsTab({ currentUser, onUnreadChange }: FriendsTabProps) {
     return () => {
       unsubscribes.forEach((fn) => fn());
       setUnreadFriendUids([]);
-      onUnreadChange?.(false);
+      setPendingDuelFriendUids([]);
     };
-  }, [friends, currentUser.uid, onUnreadChange]);
+  }, [friends, currentUser.uid]);
 
   useEffect(() => {
     if (!selectedFriend || !selectedDateKey) return;
@@ -578,14 +620,36 @@ export function FriendsTab({ currentUser, onUnreadChange }: FriendsTabProps) {
 
   const handleSendDuelInvite = useCallback(
     async (friend: FriendProfile) => {
-      const isConfirmed = window.confirm(
-        `Бросить вызов @${friend.nickname} на 7-дневную дуэль?`,
-      );
-      if (!isConfirmed) return;
-
-      const now = new Date().getTime();
-
       try {
+        const q1 = query(
+          collection(db, "duels"),
+          where("player1", "==", currentUser.uid),
+          where("player2", "==", friend.uid),
+          where("status", "in", ["pending", "active"]),
+        );
+        const q2 = query(
+          collection(db, "duels"),
+          where("player1", "==", friend.uid),
+          where("player2", "==", currentUser.uid),
+          where("status", "in", ["pending", "active"]),
+        );
+
+        const [s1, s2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+
+        if (!s1.empty || !s2.empty) {
+          alert(
+            `У вас уже есть активная дуэль или ожидающий ответ вызов с @${friend.nickname}!`,
+          );
+          return;
+        }
+
+        const isConfirmed = window.confirm(
+          `Бросить вызов @${friend.nickname} на 7-дневную дуэль?`,
+        );
+        if (!isConfirmed) return;
+
+        const now = new Date().getTime();
+
         const duelRef = doc(collection(db, "duels"));
         await setDoc(duelRef, {
           player1: currentUser.uid,
@@ -1129,6 +1193,8 @@ export function FriendsTab({ currentUser, onUnreadChange }: FriendsTabProps) {
               <div className="pt-friends-list">
                 {friends.map((f) => {
                   const hasUnread = unreadFriendUids.includes(f.uid);
+                  const hasPendingDuel = pendingDuelFriendUids.includes(f.uid);
+
                   return (
                     <div
                       key={f.uid}
@@ -1161,6 +1227,9 @@ export function FriendsTab({ currentUser, onUnreadChange }: FriendsTabProps) {
                           }}
                         >
                           ⚔️
+                          {hasPendingDuel && (
+                            <span className="pt-unread-dot pt-unread-dot--duel" />
+                          )}
                         </button>
                         <button
                           className="pt-quick-chat-btn"

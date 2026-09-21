@@ -144,6 +144,36 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     desc: "Настоящий кака-блогер, пора продавать рекламу! Собери 5 друзей",
     icon: "🌟",
   },
+  {
+    id: "duel_first_blood",
+    name: "Первый пошёл",
+    desc: "Враг повержен! Одержи свою первую победу в дуэли",
+    icon: "👊",
+  },
+  {
+    id: "duel_gladiator",
+    name: "Гладиатор",
+    desc: "Арена приветствует твой желудок! Одержи 5 побед в дуэлях",
+    icon: "⚔️",
+  },
+  {
+    id: "duel_flawless",
+    name: "Безоговорочная победа",
+    desc: "Победи в дуэли с отрывом в 10 и более очков",
+    icon: "🥊",
+  },
+  {
+    id: "duel_pacifist",
+    name: "Миротворец",
+    desc: "Победила дружба... и метаболизм! Заверши дуэль вничью",
+    icon: "🕊️",
+  },
+  {
+    id: "duel_surrender",
+    name: "Белый флаг",
+    desc: "Иногда лучше достойно отступить... Сдайся в дуэли",
+    icon: "🏳️",
+  },
 ];
 
 export const ACHIEVEMENTS_MAP: Record<string, AchievementDef> =

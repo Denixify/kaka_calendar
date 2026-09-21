@@ -2330,3 +2330,145 @@ body.chat-is-open {
     line-height: 1;
   }
 }
+
+.pt-duel-surrender-btn {
+  display: block;
+  margin: 8px auto 2px auto;
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px dashed rgba(239, 68, 68, 0.4);
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #ef4444;
+  transition: all 0.15s ease;
+
+  &:active {
+    background: #fee2e2;
+    transform: scale(0.95);
+  }
+}
+
+.pt-nav-badges-group {
+  position: absolute;
+  top: -3px;
+  right: -8px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none;
+}
+
+.pt-badge-dot {
+  position: static !important;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid #1c1822;
+
+  &--msg {
+    background-color: #ef4444;
+    animation: pt-pulse 2s infinite ease-in-out;
+  }
+
+  &--duel {
+    background-color: #f59e0b;
+    box-shadow: 0 0 6px rgba(245, 158, 11, 0.8);
+    animation: pt-pulse 1.6s infinite ease-in-out;
+  }
+}
+
+.pt-unread-dot--duel {
+  background-color: #f59e0b !important;
+  box-shadow:
+    0 0 0 2px var(--pt-surface),
+    0 0 6px rgba(245, 158, 11, 0.6) !important;
+}
+
+/* Кликабельный бейдж трофеев */
+.pt-duel-trophy-badge.pt-clickable {
+  cursor: pointer;
+  user-select: none;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+
+  &:active {
+    transform: scale(0.95);
+  }
+}
+
+.pt-duel-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  max-height: 55vh;
+  margin-top: 12px;
+  padding-bottom: 8px;
+
+  &::-webkit-scrollbar {
+    width: 0;
+  }
+}
+
+.pt-duel-history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-radius: var(--pt-radius-sm);
+  background: var(--pt-surface2);
+  border: 1.5px solid var(--pt-border);
+
+  &.win {
+    border-color: #86efac;
+    background: #f0fdf4;
+    .badge {
+      color: #15803d;
+    }
+  }
+
+  &.loss {
+    border-color: #fca5a5;
+    background: #fff1f2;
+    .badge {
+      color: #b91c1c;
+    }
+  }
+
+  &.draw {
+    border-color: #fde68a;
+    background: #fffbeb;
+    .badge {
+      color: #b45309;
+    }
+  }
+}
+
+.pt-duel-history-date {
+  font-size: 11px;
+  color: var(--pt-text-3);
+  display: block;
+}
+
+.pt-duel-history-score {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+
+  .score {
+    font-size: 16px;
+    font-weight: 800;
+    color: var(--pt-text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .badge {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+}
