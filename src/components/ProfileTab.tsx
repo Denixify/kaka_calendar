@@ -101,6 +101,8 @@ export function ProfileTab({
   const [duelHistory, setDuelHistory] = useState<FinishedDuel[]>([]);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
 
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
   const [featuredAchievementId, setFeaturedAchievementId] = useState<
     string | null
   >(() => {
@@ -116,6 +118,19 @@ export function ProfileTab({
   });
 
   const [nowTime] = useState(() => new Date().getTime());
+
+  useEffect(() => {
+    const handleOffline = () => setIsOffline(true);
+    const handleOnline = () => setIsOffline(false);
+
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, []);
 
   useEffect(() => {
     const isAnyModalOpen =
@@ -458,7 +473,11 @@ export function ProfileTab({
           </div>
         )}
 
-        <p className="pt-profile-desc">Синхронизация с облаком активна</p>
+        <p className={`pt-profile-desc ${isOffline ? "offline" : ""}`}>
+          {isOffline
+            ? "⚠️ Нет сети. Локальный режим."
+            : "Синхронизация с облаком активна"}
+        </p>
 
         <div className="pt-bio-block">
           {isEditingBio ? (

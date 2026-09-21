@@ -208,10 +208,18 @@ export default function App() {
   };
 
   useEffect(() => {
-    const handleOffline = () => setNetworkToast("offline");
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const handleOffline = () => {
+      setNetworkToast("offline");
+      clearTimeout(timer);
+      timer = setTimeout(() => setNetworkToast(null), 4000);
+    };
+
     const handleOnline = () => {
       setNetworkToast("online");
-      setTimeout(() => setNetworkToast(null), 3000);
+      clearTimeout(timer);
+      timer = setTimeout(() => setNetworkToast(null), 3000);
     };
 
     window.addEventListener("offline", handleOffline);
@@ -223,6 +231,7 @@ export default function App() {
     });
 
     return () => {
+      clearTimeout(timer);
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
       unsubscribe();
@@ -449,10 +458,13 @@ export default function App() {
       <>
         <AuthScreen onSuccess={() => {}} />
         {networkToast && (
-          <div className={`pt-toast pt-toast--${networkToast}`}>
+          <div
+            className={`pt-toast pt-toast--${networkToast}`}
+            onClick={() => setNetworkToast(null)}
+          >
             {networkToast === "offline"
               ? "⚠️ Нет сети. Данные сохраняются локально."
-              : "✅ Сеть восстановлена! Синхронизация завершена."}
+              : "✅ Сеть восстановлена!"}
           </div>
         )}
       </>
