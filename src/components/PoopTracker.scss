@@ -1531,10 +1531,54 @@ body:has(.pt-chat-fullscreen) .pt-nav-capsule-wrapper {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 14px;
+  gap: 12px;
+  padding: 10px 14px;
   background: var(--pt-surface2);
   border-radius: var(--pt-radius-sm);
   margin-top: 8px;
+  border: 1px solid var(--pt-border);
+
+  .pt-friend-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .pt-friend-text-meta {
+    min-width: 0;
+    flex: 1;
+
+    strong {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 14px;
+    }
+  }
+
+  .pt-friend-add-btn {
+    flex-shrink: 0;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 14px;
+    white-space: nowrap;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .pt-friend-badge {
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--pt-text-3);
+    white-space: nowrap;
+  }
 }
 
 .pt-search-bio {
@@ -2394,7 +2438,6 @@ body.chat-is-open {
     0 0 6px rgba(245, 158, 11, 0.6) !important;
 }
 
-/* Кликабельный бейдж трофеев */
 .pt-duel-trophy-badge.pt-clickable {
   cursor: pointer;
   user-select: none;

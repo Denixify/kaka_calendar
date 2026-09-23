@@ -42,12 +42,8 @@ export function calculateRecordScore(rec?: DayRecord): number {
   }
 
   const countNum = parseInt(rec.count || "1", 10);
-  if (rec.status !== "cancel") {
-    if (countNum >= 1 && countNum <= 2) {
-      score += 1;
-    } else if (countNum >= 4) {
-      score -= 1;
-    }
+  if (rec.status !== "cancel" && !isNaN(countNum)) {
+    score += countNum;
   }
 
   return score;
@@ -61,19 +57,25 @@ export function calculateDuelScore(
   let total = 0;
   const startObj = new Date(startDate);
   const endObj = new Date(endDate);
+  const now = new Date();
 
   const current = new Date(
     startObj.getFullYear(),
     startObj.getMonth(),
     startObj.getDate(),
   );
+
   const finish = new Date(
     endObj.getFullYear(),
     endObj.getMonth(),
     endObj.getDate(),
   );
 
-  while (current <= finish) {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  const maxAllowedDate = finish < today ? finish : today;
+
+  while (current <= maxAllowedDate) {
     const key = toDateKey(
       current.getFullYear(),
       current.getMonth(),

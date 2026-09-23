@@ -1139,7 +1139,15 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                 className="pt-input pt-friends-input"
                 placeholder="Введи @никнейм..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSearchQuery(val);
+                  if (!val.trim()) {
+                    setSearchResult(null);
+                    setSearchError(null);
+                    setRequestSent(false);
+                  }
+                }}
                 autoCapitalize="none"
               />
               <button
@@ -1159,7 +1167,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                   <span className="pt-friend-avatar">
                     {searchResult.avatar || "👑"}
                   </span>
-                  <div>
+                  <div className="pt-friend-text-meta">
                     <strong>@{searchResult.nickname}</strong>
                     {searchResult.bio && (
                       <p className="pt-search-bio">«{searchResult.bio}»</p>
@@ -1173,7 +1181,8 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                   <span className="pt-friend-badge">Запрос отправлен</span>
                 ) : (
                   <button
-                    className="pt-btn pt-btn--primary pt-btn--compact"
+                    type="button"
+                    className="pt-btn pt-btn--primary pt-btn--compact pt-friend-add-btn"
                     onClick={() => handleSendRequest(searchResult)}
                   >
                     Добавить
