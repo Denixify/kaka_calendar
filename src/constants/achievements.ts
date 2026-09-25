@@ -105,7 +105,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   {
     id: "not_great_not_terrible",
     name: "Полёт нормальный",
-    desc: "Не отлично, но и не ужасно. Отметь статус «Нормально» (😐)",
+    desc: "Не отлично, но и не ужасно. Отметь статус «Нормально» (😁)",
     icon: "👌",
   },
   {
@@ -178,3 +178,14 @@ export const ACHIEVEMENTS: AchievementDef[] = [
 
 export const ACHIEVEMENTS_MAP: Record<string, AchievementDef> =
   Object.fromEntries(ACHIEVEMENTS.map((a) => [a.id, a]));
+
+export const GIFTS_MAP: Record<
+  string,
+  { name: string; icon: string; price: number }
+> = {
+  pills: { name: "Уголь", icon: "💊", price: 10 },
+  magazine: { name: "Кроссворд", icon: "📰", price: 30 },
+  air_freshener: { name: "Ёлочка", icon: "🌲", price: 100 },
+  plunger: { name: "Турбо-вантуз", icon: "🪠", price: 250 },
+  gold_paper: { name: "Золотая бумага", icon: "🧻", price: 500 },
+};

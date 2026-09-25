@@ -19,6 +19,7 @@ import {
   query,
   orderBy,
   where,
+  increment,
 } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import "./PoopTracker.scss";
@@ -75,7 +76,7 @@ const STATUS_LABELS: Record<Status, string> = {
 const STATUS_EMOJI: Record<Status, string> = {
   cancel: "❌",
   sad: "😢",
-  neutral: "😐",
+  neutral: "😁",
   happy: "😊",
 };
 
@@ -325,6 +326,11 @@ export const PoopTracker = forwardRef<PoopTrackerHandle, PoopTrackerProps>(
       if (!selectedDate) return;
       if (status !== "cancel") playSound();
 
+      let earnedCoins = 0;
+      if (status === "happy" && draft.quality === "soft") {
+        earnedCoins = 1;
+      }
+
       const next = {
         ...records,
         [selectedDate]: {
@@ -333,6 +339,20 @@ export const PoopTracker = forwardRef<PoopTrackerHandle, PoopTrackerProps>(
           status: status,
         },
       };
+
+      onUpdateRecords(next);
+      setSelectedDate(null);
+
+      if (earnedCoins > 0) {
+        updateDoc(doc(db, "users", userId), {
+          balance: increment(earnedCoins),
+        }).catch(console.error);
+
+        setTimeout(
+          () => alert(`Идеально! Начислено Смыв-коинов: +${earnedCoins} 🪙`),
+          300,
+        );
+      }
 
       onUpdateRecords(next);
       setSelectedDate(null);
@@ -452,7 +472,7 @@ export const PoopTracker = forwardRef<PoopTrackerHandle, PoopTrackerProps>(
             <span className="pt-stat__count">{monthStats.happy}</span>
           </div>
           <div className="pt-stat">
-            <span className="pt-stat__emoji">😐</span>
+            <span className="pt-stat__emoji">😁</span>
             <span className="pt-stat__count">{monthStats.neutral}</span>
           </div>
           <div className="pt-stat">

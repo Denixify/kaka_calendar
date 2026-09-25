@@ -14,9 +14,12 @@ import {
   query,
   orderBy,
   where,
+  increment,
 } from "firebase/firestore";
 import { db } from "../firebase";
-import { ACHIEVEMENTS_MAP } from "../constants/achievements";
+import { ACHIEVEMENTS_MAP, GIFTS_MAP } from "../constants/achievements";
+import { FlappyPoop } from "./games/FlappyPoop";
+import { DoodleTurd } from "./games/DoodleTurd";
 
 function toDateKey(year: number, month: number, day: number): string {
   return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -41,7 +44,7 @@ const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 const STATUS_EMOJI: Record<string, string> = {
   cancel: "❌",
   sad: "😢",
-  neutral: "😐",
+  neutral: "😁",
   happy: "😊",
 };
 
@@ -58,6 +61,8 @@ interface FriendProfile {
   avatar?: string;
   bio?: string;
   featuredAchievementId?: string | null;
+  flappyHighScore?: number;
+  doodleHighScore?: number;
 }
 
 export interface DayComment {
@@ -75,9 +80,20 @@ interface ChatMessage {
   text: string;
   createdAt: number;
   read?: boolean;
-  type?: "text" | "duel_invite";
+  type?: "text" | "duel_invite" | "gift" | "game_challenge";
   duelId?: string;
   duelStatus?: "pending" | "active" | "declined" | "finished";
+  giftId?: string;
+  gameType?: "flappy" | "doodle";
+  gameScore?: number;
+}
+
+interface ReceivedGift {
+  id: string;
+  fromUid: string;
+  fromNickname: string;
+  giftId: string;
+  createdAt: number;
 }
 
 interface FriendsTabProps {
@@ -140,6 +156,7 @@ function DuelCardView({
               const currentWins = uSnap.data()?.duelWins || 0;
               updateDoc(doc(db, "users", winner), {
                 duelWins: currentWins + 1,
+                balance: increment(10),
               }).catch(() => {});
             });
           }
@@ -283,6 +300,8 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
   const [currentUserAvatar, setCurrentUserAvatar] = useState(() => {
     return localStorage.getItem(`pt-avatar-cache-${currentUser.uid}`) || "👑";
   });
+  const [myFlappyScore, setMyFlappyScore] = useState(0);
+  const [myDoodleScore, setMyDoodleScore] = useState(0);
 
   const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
   const [comments, setComments] = useState<DayComment[]>([]);
@@ -298,25 +317,37 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
     [],
   );
 
+  const [activeGame, setActiveGame] = useState<"flappy" | "doodle" | null>(
+    null,
+  );
+
+  const [isGiftPickerOpen, setIsGiftPickerOpen] = useState(false);
+  const [friendGifts, setFriendGifts] = useState<ReceivedGift[]>([]);
+
+  const [balance, setBalance] = useState(0);
+
   useEffect(() => {
     let isMounted = true;
-    async function loadCurrentAvatar() {
+    async function loadCurrentUserProfile() {
       try {
         const uSnap = await getDoc(doc(db, "users", currentUser.uid));
         if (uSnap.exists() && isMounted) {
-          const avatar = uSnap.data().avatar || "👑";
-          setCurrentUserAvatar(avatar);
-          localStorage.setItem(`pt-avatar-cache-${currentUser.uid}`, avatar);
+          const data = uSnap.data();
+          setCurrentUserAvatar(data.avatar || "👑");
+          setMyFlappyScore(data.flappyHighScore || 0);
+          setMyDoodleScore(data.doodleHighScore || 0);
+
+          if (data.balance !== undefined) setBalance(data.balance);
         }
       } catch (e) {
-        console.error("Ошибка загрузки аватарки пользователя:", e);
+        console.error("Ошибка загрузки профиля пользователя:", e);
       }
     }
-    loadCurrentAvatar();
+    loadCurrentUserProfile();
     return () => {
       isMounted = false;
     };
-  }, [currentUser.uid]);
+  }, [currentUser.uid, activeGame]);
 
   useEffect(() => {
     let isMounted = true;
@@ -336,6 +367,8 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
               avatar: uData.avatar || "👑",
               bio: uData.bio,
               featuredAchievementId: uData.featuredAchievementId || null,
+              flappyHighScore: uData.flappyHighScore || 0,
+              doodleHighScore: uData.doodleHighScore || 0,
             });
           }
         }
@@ -423,6 +456,31 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
   }, [selectedFriend, selectedDateKey]);
 
   useEffect(() => {
+    if (!selectedFriend) return;
+    let isMounted = true;
+    async function fetchFriendGifts() {
+      try {
+        const snap = await getDocs(
+          collection(db, "users", selectedFriend!.uid, "gifts_received"),
+        );
+        if (isMounted) {
+          setFriendGifts(
+            snap.docs
+              .map((d) => ({ id: d.id, ...d.data() }) as ReceivedGift)
+              .sort((a, b) => b.createdAt - a.createdAt),
+          );
+        }
+      } catch (e) {
+        console.error("Ошибка загрузки подарков друга:", e);
+      }
+    }
+    fetchFriendGifts();
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedFriend]);
+
+  useEffect(() => {
     if (!chatPartner) return;
 
     const chatId = [currentUser.uid, chatPartner.uid].sort().join("_");
@@ -492,6 +550,8 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
             avatar: pData.avatar || "👑",
             bio: pData.bio,
             featuredAchievementId: pData.featuredAchievementId || null,
+            flappyHighScore: pData.flappyHighScore || 0,
+            doodleHighScore: pData.doodleHighScore || 0,
           });
         }
       }
@@ -618,6 +678,53 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
     }
   };
 
+  const handleSendGift = useCallback(
+    async (giftId: string) => {
+      if (!chatPartner) return;
+
+      const gift = GIFTS_MAP[giftId];
+      if (balance < gift.price) {
+        alert(
+          `Нужно больше золота! Не хватает Смыв-коинов (цена: ${gift.price} 🪙).`,
+        );
+        return;
+      }
+
+      setIsGiftPickerOpen(false);
+      const chatId = [currentUser.uid, chatPartner.uid].sort().join("_");
+      const timestamp = new Date().getTime();
+
+      try {
+        setBalance((prev) => prev - gift.price);
+
+        await updateDoc(doc(db, "users", currentUser.uid), {
+          balance: increment(-gift.price),
+        });
+
+        await addDoc(collection(db, "chats", chatId, "messages"), {
+          senderUid: currentUser.uid,
+          text: `Отправил(а) подарок!`,
+          type: "gift",
+          giftId: giftId,
+          createdAt: timestamp,
+          read: false,
+        });
+        await addDoc(
+          collection(db, "users", chatPartner.uid, "gifts_received"),
+          {
+            fromUid: currentUser.uid,
+            fromNickname: currentUser.displayName || "user",
+            giftId: giftId,
+            createdAt: timestamp,
+          },
+        );
+      } catch (e) {
+        console.error("Ошибка при отправке подарка:", e);
+      }
+    },
+    [chatPartner, currentUser, balance],
+  );
+
   const handleSendDuelInvite = useCallback(
     async (friend: FriendProfile) => {
       try {
@@ -684,6 +791,37 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
     [currentUser.uid],
   );
 
+  const handleSendGameChallenge = async (
+    gameType: "flappy" | "doodle",
+    score: number,
+  ) => {
+    if (!selectedFriend) return;
+    const gameName = gameType === "flappy" ? "Flappy Poop" : "Doodle Turd";
+    try {
+      await addDoc(
+        collection(
+          db,
+          "chats",
+          [currentUser.uid, selectedFriend.uid].sort().join("_"),
+          "messages",
+        ),
+        {
+          senderUid: currentUser.uid,
+          text: `Я набрал ${score} очков в ${gameName}! Сможешь побить мой рекорд?`,
+          type: "game_challenge",
+          gameType: gameType,
+          gameScore: score,
+          createdAt: Date.now(),
+          read: false,
+        },
+      );
+      setChatPartner(selectedFriend);
+      setSelectedFriend(null);
+    } catch (e) {
+      console.error("Ошибка вызова на игру:", e);
+    }
+  };
+
   const handleAcceptDuel = useCallback(
     async (messageId: string, duelId: string) => {
       if (!chatPartner) return;
@@ -728,51 +866,6 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
     [chatPartner, currentUser.uid],
   );
 
-  useEffect(() => {
-    if (!chatPartner) return;
-
-    const handleViewportChange = () => {
-      const vv = window.visualViewport;
-      if (!vv) return;
-
-      window.scrollTo(0, 0);
-
-      const chatEl = document.querySelector(
-        ".pt-chat-fullscreen",
-      ) as HTMLElement | null;
-      if (chatEl) {
-        chatEl.style.top = `${vv.offsetTop}px`;
-        chatEl.style.height = `${vv.height}px`;
-      }
-    };
-
-    window.visualViewport?.addEventListener("resize", handleViewportChange);
-    window.visualViewport?.addEventListener("scroll", handleViewportChange);
-    window.addEventListener("scroll", handleViewportChange);
-
-    handleViewportChange();
-
-    return () => {
-      window.visualViewport?.removeEventListener(
-        "resize",
-        handleViewportChange,
-      );
-      window.visualViewport?.removeEventListener(
-        "scroll",
-        handleViewportChange,
-      );
-      window.removeEventListener("scroll", handleViewportChange);
-
-      const chatEl = document.querySelector(
-        ".pt-chat-fullscreen",
-      ) as HTMLElement | null;
-      if (chatEl) {
-        chatEl.style.top = "";
-        chatEl.style.height = "";
-      }
-    };
-  }, [chatPartner]);
-
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
 
@@ -797,7 +890,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
             <span className="pt-chat-avatar">{chatPartner.avatar || "👑"}</span>
             <span>@{chatPartner.nickname}</span>
           </div>
-          <div style={{ width: 60 }} />
+          <div className="pt-chat-nav-placeholder" />
         </div>
 
         <div className="pt-chat-messages">
@@ -805,9 +898,70 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
             <p className="pt-empty-comments">Напиши первое сообщение!</p>
           ) : (
             messages.map((m) => {
-              if (m.type === "duel_invite") {
-                const isMe = m.senderUid === currentUser.uid;
+              const isMe = m.senderUid === currentUser.uid;
 
+              if (m.type === "gift" && m.giftId && GIFTS_MAP[m.giftId]) {
+                const gift = GIFTS_MAP[m.giftId];
+                return (
+                  <div
+                    key={m.id}
+                    className={`pt-chat-bubble ${isMe ? "me" : "them"}`}
+                  >
+                    <div className="pt-chat-bubble-content--gift">
+                      <div className="pt-chat-bubble-gift-icon">
+                        {gift.icon}
+                      </div>
+                      <h4 className="pt-chat-bubble-gift-title">{gift.name}</h4>
+                      <p className="pt-chat-bubble-gift-sub">
+                        {isMe
+                          ? "Ты отправил(а) подарок!"
+                          : "Тебе прислали подарок!"}
+                      </p>
+                      <span className="pt-chat-time pt-chat-time--right">
+                        {new Date(m.createdAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </div>
+                  </div>
+                );
+              }
+
+              if (m.type === "game_challenge") {
+                const gameName =
+                  m.gameType === "flappy" ? "Flappy Poop" : "Doodle Turd";
+                const icon = m.gameType === "flappy" ? "💩💨" : "🧻⬆️";
+                return (
+                  <div
+                    key={m.id}
+                    className={`pt-chat-bubble pt-duel-invite ${isMe ? "me" : "them"}`}
+                  >
+                    <h4 className="pt-duel-title">
+                      {icon} Вызов в {gameName}!
+                    </h4>
+                    <p className="pt-duel-challenge-text">
+                      {isMe
+                        ? `Ты бросил вызов с рекордом: ${m.gameScore}`
+                        : `@${chatPartner.nickname} бросает вызов с рекордом: ${m.gameScore}!`}
+                    </p>
+                    <button
+                      className="pt-btn pt-btn--primary pt-btn--compact"
+                      onClick={() => setActiveGame(m.gameType!)}
+                    >
+                      Играть
+                    </button>
+                    <span className="pt-chat-time">
+                      {new Date(m.createdAt).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </div>
+                );
+              }
+
+              if (m.type === "duel_invite") {
                 if (m.duelStatus === "declined") {
                   return (
                     <div
@@ -815,13 +969,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                       className={`pt-chat-bubble pt-duel-invite declined ${isMe ? "me" : "them"}`}
                     >
                       <h4 className="pt-duel-title">Вызов отклонен ❌</h4>
-                      <p
-                        style={{
-                          fontSize: "13px",
-                          textAlign: "center",
-                          margin: 0,
-                        }}
-                      >
+                      <p className="pt-duel-declined-text">
                         {isMe
                           ? `@${chatPartner.nickname} струсил(а) и отказался от дуэли.`
                           : `Ты отказался от дуэли.`}
@@ -906,13 +1054,23 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
           <div ref={messagesEndRef} />
         </div>
 
-        <form onSubmit={handleSendMessage} className="pt-chat-form">
+        <form
+          onSubmit={handleSendMessage}
+          className="pt-chat-form pt-chat-form-wrap"
+        >
+          <button
+            type="button"
+            className="pt-btn pt-btn--secondary pt-btn--compact pt-chat-gift-btn"
+            onClick={() => setIsGiftPickerOpen(true)}
+          >
+            🎁
+          </button>
           <input
             type="text"
             placeholder="Сообщение..."
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
-            className="pt-chat-input"
+            className="pt-chat-input pt-chat-input--flex"
           />
           <button
             type="submit"
@@ -922,6 +1080,71 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
             ➤
           </button>
         </form>
+
+        {isGiftPickerOpen && (
+          <div
+            className="pt-overlay"
+            onClick={() => setIsGiftPickerOpen(false)}
+          >
+            <div className="pt-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="pt-modal__handle" />
+              <h3 className="pt-modal__title">
+                Магазин (Баланс: {balance} 🪙)
+              </h3>
+              <div className="pt-avatar-picker-grid">
+                {Object.entries(GIFTS_MAP).map(([id, gift]) => {
+                  const canAfford = balance >= gift.price;
+                  return (
+                    <button
+                      key={id}
+                      className={`pt-avatar-picker-item pt-gift-picker-item ${!canAfford ? "pt-gift-picker-item--disabled" : ""}`}
+                      onClick={() =>
+                        canAfford
+                          ? handleSendGift(id)
+                          : alert("Иди зарабатывай Смыв-коины! 🪙")
+                      }
+                    >
+                      <span className="pt-gift-picker-icon">{gift.icon}</span>
+                      <span className="pt-gift-picker-name">{gift.name}</span>
+                      <span
+                        className={`pt-gift-picker-price ${canAfford ? "pt-gift-picker-price--ok" : "pt-gift-picker-price--no"}`}
+                      >
+                        {gift.price} 🪙
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="pt-modal__actions">
+                <button
+                  className="pt-modal__close"
+                  onClick={() => setIsGiftPickerOpen(false)}
+                >
+                  Отмена
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeGame === "flappy" && (
+          <div className="pt-chat-fullscreen pt-chat-fullscreen--game">
+            <FlappyPoop
+              userId={currentUser.uid}
+              highScore={myFlappyScore}
+              onClose={() => setActiveGame(null)}
+            />
+          </div>
+        )}
+        {activeGame === "doodle" && (
+          <div className="pt-chat-fullscreen pt-chat-fullscreen--game">
+            <DoodleTurd
+              userId={currentUser.uid}
+              highScore={myDoodleScore}
+              onClose={() => setActiveGame(null)}
+            />
+          </div>
+        )}
       </div>
     );
   }
@@ -972,14 +1195,70 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                 </div>
               )}
 
-            <div
-              style={{
-                display: "flex",
-                gap: "8px",
-                justifyContent: "center",
-                marginTop: "16px",
-              }}
-            >
+            {friendGifts.length > 0 && (
+              <div className="pt-settings-section pt-game-zone-section">
+                <h4>Подарки ({friendGifts.length}) 🎁</h4>
+                <div className="pt-gifts-grid">
+                  {friendGifts.map((g) => (
+                    <div key={g.id} className="pt-gift-item">
+                      <span className="pt-gift-icon">
+                        {GIFTS_MAP[g.giftId]?.icon || "🎁"}
+                      </span>
+                      <div className="pt-gift-info">
+                        <span className="pt-gift-name">
+                          {GIFTS_MAP[g.giftId]?.name || "Подарок"}
+                        </span>
+                        <span className="pt-gift-sender">
+                          от @{g.fromNickname}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="pt-settings-section pt-game-zone-section">
+              <h4>Рекорды в играх 🎮</h4>
+              <div className="pt-game-cards-wrap pt-game-cards-wrap--friend">
+                <div className="pt-game-card pt-game-card--compact">
+                  <div className="pt-game-icon pt-game-icon--compact">💩💨</div>
+                  <h4 className="pt-game-title pt-game-title--compact">
+                    Flappy Poop
+                  </h4>
+                  <div className="pt-game-score-record">
+                    Топ: {selectedFriend.flappyHighScore || 0}
+                  </div>
+                  <button
+                    className="pt-btn pt-btn--primary pt-btn--compact"
+                    onClick={() =>
+                      handleSendGameChallenge("flappy", myFlappyScore)
+                    }
+                  >
+                    Вызов ({myFlappyScore})
+                  </button>
+                </div>
+                <div className="pt-game-card pt-game-card--compact">
+                  <div className="pt-game-icon pt-game-icon--compact">🧻⬆️</div>
+                  <h4 className="pt-game-title pt-game-title--compact">
+                    Doodle Turd
+                  </h4>
+                  <div className="pt-game-score-record">
+                    Топ: {selectedFriend.doodleHighScore || 0}
+                  </div>
+                  <button
+                    className="pt-btn pt-btn--primary pt-btn--compact pt-btn--gradient"
+                    onClick={() =>
+                      handleSendGameChallenge("doodle", myDoodleScore)
+                    }
+                  >
+                    Вызов ({myDoodleScore})
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-friend-actions-row">
               <button
                 className="pt-btn pt-btn--primary pt-btn--compact"
                 onClick={() => setChatPartner(selectedFriend)}
@@ -987,8 +1266,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                 💬 Чат
               </button>
               <button
-                className="pt-btn pt-btn--secondary pt-btn--compact"
-                style={{ borderColor: "#fbbf24", color: "#d97706" }}
+                className="pt-btn pt-btn--secondary pt-btn--compact pt-btn--duel"
                 onClick={() => handleSendDuelInvite(selectedFriend)}
               >
                 ⚔️ Вызвать на дуэль
@@ -1219,14 +1497,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                           {f.bio && <p className="pt-friend-sub">{f.bio}</p>}
                         </div>
                       </div>
-                      <div
-                        className="pt-friend-actions"
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "12px",
-                        }}
-                      >
+                      <div className="pt-friend-actions pt-friend-actions-group">
                         <button
                           className="pt-quick-chat-btn"
                           title="Вызвать на дуэль"

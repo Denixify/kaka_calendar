@@ -14,7 +14,13 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import type { Records } from "./PoopTracker";
-import { ACHIEVEMENTS, ACHIEVEMENTS_MAP } from "../constants/achievements";
+import {
+  ACHIEVEMENTS,
+  ACHIEVEMENTS_MAP,
+  GIFTS_MAP,
+} from "../constants/achievements";
+import { FlappyPoop } from "./games/FlappyPoop";
+import { DoodleTurd } from "./games/DoodleTurd";
 
 function toDateKey(year: number, month: number, day: number): string {
   return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -46,8 +52,6 @@ const PRESET_AVATARS = [
   "🔥",
 ];
 
-const BASE = import.meta.env.BASE_URL;
-
 interface FriendRequest {
   fromUid: string;
   fromNickname: string;
@@ -62,6 +66,14 @@ interface FinishedDuel {
   partnerScore: number;
   winnerId: string | null;
   endedAt: number;
+}
+
+interface ReceivedGift {
+  id: string;
+  fromUid: string;
+  fromNickname: string;
+  giftId: string;
+  createdAt: number;
 }
 
 interface ProfileTabProps {
@@ -79,16 +91,16 @@ export function ProfileTab({
   onRestoreStreak,
   unlockedAchievements,
 }: ProfileTabProps) {
-  const [bio, setBio] = useState(() => {
-    return localStorage.getItem(`pt-bio-cache-${currentUser.uid}`) || "";
-  });
-  const [avatar, setAvatar] = useState(() => {
-    return localStorage.getItem(`pt-avatar-cache-${currentUser.uid}`) || "👑";
-  });
+  const [bio, setBio] = useState(
+    () => localStorage.getItem(`pt-bio-cache-${currentUser.uid}`) || "",
+  );
+  const [avatar, setAvatar] = useState(
+    () => localStorage.getItem(`pt-avatar-cache-${currentUser.uid}`) || "👑",
+  );
   const [isEditingBio, setIsEditingBio] = useState(false);
-  const [bioDraft, setBioDraft] = useState(() => {
-    return localStorage.getItem(`pt-bio-cache-${currentUser.uid}`) || "";
-  });
+  const [bioDraft, setBioDraft] = useState(
+    () => localStorage.getItem(`pt-bio-cache-${currentUser.uid}`) || "",
+  );
   const [isSavingBio, setIsSavingBio] = useState(false);
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -100,32 +112,36 @@ export function ProfileTab({
   const [requests, setRequests] = useState<FriendRequest[]>([]);
   const [duelHistory, setDuelHistory] = useState<FinishedDuel[]>([]);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
-
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
+  const [flappyHighScore, setFlappyHighScore] = useState(0);
+  const [doodleHighScore, setDoodleHighScore] = useState(0);
+  const [activeGame, setActiveGame] = useState<"flappy" | "doodle" | null>(
+    null,
+  );
+
+  const [myGifts, setMyGifts] = useState<ReceivedGift[]>([]);
 
   const [featuredAchievementId, setFeaturedAchievementId] = useState<
     string | null
-  >(() => {
-    return localStorage.getItem(`pt-featured-ach-${currentUser.uid}`) || null;
-  });
+  >(() => localStorage.getItem(`pt-featured-ach-${currentUser.uid}`) || null);
 
   const [soundPref, setSoundPref] = useState<string>(
     () => localStorage.getItem("pt-sound-pref") || "metalpipe.mp3",
   );
 
-  const [duelWins, setDuelWins] = useState<number>(() => {
-    return Number(localStorage.getItem(`pt-duel-wins-${currentUser.uid}`) || 0);
-  });
+  const [duelWins, setDuelWins] = useState<number>(() =>
+    Number(localStorage.getItem(`pt-duel-wins-${currentUser.uid}`) || 0),
+  );
 
   const [nowTime] = useState(() => new Date().getTime());
+  const [balance, setBalance] = useState<number>(0);
 
   useEffect(() => {
     const handleOffline = () => setIsOffline(true);
     const handleOnline = () => setIsOffline(false);
-
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
-
     return () => {
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("online", handleOnline);
@@ -138,7 +154,8 @@ export function ProfileTab({
       isAchievModalOpen ||
       isRequestsOpen ||
       isAvatarModalOpen ||
-      isDuelHistoryOpen;
+      isDuelHistoryOpen ||
+      activeGame !== null;
 
     if (isAnyModalOpen) {
       document.body.style.overflow = "hidden";
@@ -164,16 +181,17 @@ export function ProfileTab({
     isRequestsOpen,
     isAvatarModalOpen,
     isDuelHistoryOpen,
+    activeGame,
   ]);
 
   useEffect(() => {
     let isMounted = true;
-
     async function loadUserProfile() {
       try {
         const userSnap = await getDoc(doc(db, "users", currentUser.uid));
         if (userSnap.exists() && isMounted) {
           const data = userSnap.data();
+          if (data.balance !== undefined) setBalance(data.balance);
           if (data.bio !== undefined) {
             setBio(data.bio);
             setBioDraft(data.bio);
@@ -193,6 +211,10 @@ export function ProfileTab({
               String(data.duelWins),
             );
           }
+          if (data.flappyHighScore !== undefined)
+            setFlappyHighScore(data.flappyHighScore);
+          if (data.doodleHighScore !== undefined)
+            setDoodleHighScore(data.doodleHighScore);
           if (data.featuredAchievementId !== undefined) {
             setFeaturedAchievementId(data.featuredAchievementId);
             if (data.featuredAchievementId) {
@@ -209,9 +231,7 @@ export function ProfileTab({
         console.error("Ошибка загрузки профиля:", e);
       }
     }
-
     loadUserProfile();
-
     return () => {
       isMounted = false;
     };
@@ -219,27 +239,31 @@ export function ProfileTab({
 
   useEffect(() => {
     let isMounted = true;
-
-    async function fetchRequests() {
+    async function fetchRequestsAndGifts() {
       try {
-        const snap = await getDocs(
-          collection(db, "users", currentUser.uid, "friend_requests"),
-        );
-        const list: FriendRequest[] = snap.docs.map((d) => ({
-          fromUid: d.data().fromUid,
-          fromNickname: d.data().fromNickname,
-          fromAvatar: d.data().fromAvatar,
-        }));
+        const [requestsSnap, giftsSnap] = await Promise.all([
+          getDocs(collection(db, "users", currentUser.uid, "friend_requests")),
+          getDocs(collection(db, "users", currentUser.uid, "gifts_received")),
+        ]);
         if (isMounted) {
-          setRequests(list);
+          setRequests(
+            requestsSnap.docs.map((d) => ({
+              fromUid: d.data().fromUid,
+              fromNickname: d.data().fromNickname,
+              fromAvatar: d.data().fromAvatar,
+            })),
+          );
+          setMyGifts(
+            giftsSnap.docs
+              .map((d) => ({ id: d.id, ...d.data() }) as ReceivedGift)
+              .sort((a, b) => b.createdAt - a.createdAt),
+          );
         }
       } catch (e) {
-        console.error("Ошибка загрузки заявок:", e);
+        console.error("Ошибка загрузки данных профиля:", e);
       }
     }
-
-    fetchRequests();
-
+    fetchRequestsAndGifts();
     return () => {
       isMounted = false;
     };
@@ -248,7 +272,6 @@ export function ProfileTab({
   const handleOpenDuelHistory = useCallback(async () => {
     setIsDuelHistoryOpen(true);
     setIsHistoryLoading(true);
-
     try {
       const q1 = query(
         collection(db, "duels"),
@@ -260,27 +283,22 @@ export function ProfileTab({
         where("player2", "==", currentUser.uid),
         where("status", "==", "finished"),
       );
-
       const [s1, s2] = await Promise.all([getDocs(q1), getDocs(q2)]);
       const allDocs = [...s1.docs, ...s2.docs];
-
       const list: FinishedDuel[] = [];
 
       for (const d of allDocs) {
         const data = d.data();
         const partnerUid =
           data.player1 === currentUser.uid ? data.player2 : data.player1;
-
         let partnerName = "Игрок";
         let partnerAvatar = "👑";
-
         const uSnap = await getDoc(doc(db, "users", partnerUid));
         if (uSnap.exists()) {
           const uData = uSnap.data();
           partnerName = uData.nickname || "user";
           partnerAvatar = uData.avatar || "👑";
         }
-
         list.push({
           id: d.id,
           partnerNickname: partnerName,
@@ -291,7 +309,6 @@ export function ProfileTab({
           endedAt: data.endDate || data.createdAt || new Date().getTime(),
         });
       }
-
       list.sort((a, b) => b.endedAt - a.endedAt);
       setDuelHistory(list);
     } catch (err) {
@@ -304,12 +321,9 @@ export function ProfileTab({
   const handleToggleFeatured = async (achId: string) => {
     const nextId = featuredAchievementId === achId ? null : achId;
     setFeaturedAchievementId(nextId);
-    if (nextId) {
+    if (nextId)
       localStorage.setItem(`pt-featured-ach-${currentUser.uid}`, nextId);
-    } else {
-      localStorage.removeItem(`pt-featured-ach-${currentUser.uid}`);
-    }
-
+    else localStorage.removeItem(`pt-featured-ach-${currentUser.uid}`);
     try {
       await updateDoc(doc(db, "users", currentUser.uid), {
         featuredAchievementId: nextId,
@@ -336,9 +350,7 @@ export function ProfileTab({
     const cleanBio = bioDraft.trim();
     setIsSavingBio(true);
     try {
-      await updateDoc(doc(db, "users", currentUser.uid), {
-        bio: cleanBio,
-      });
+      await updateDoc(doc(db, "users", currentUser.uid), { bio: cleanBio });
       setBio(cleanBio);
       localStorage.setItem(`pt-bio-cache-${currentUser.uid}`, cleanBio);
       setIsEditingBio(false);
@@ -380,6 +392,7 @@ export function ProfileTab({
 
   const playSound = (soundId: string) => {
     if (soundId === "none") return;
+    const BASE = import.meta.env.BASE_URL;
     const audio = new Audio(`${BASE}sounds/${soundId}`);
     audio.play().catch(() => {});
   };
@@ -398,34 +411,28 @@ export function ProfileTab({
       _yestObj.getMonth(),
       _yestObj.getDate(),
     );
-
     const activeEntries = Object.entries(records)
       .filter(([, data]) => data.status && data.status !== "cancel")
       .sort((a, b) => b[0].localeCompare(a[0]));
-
     const activeDates = activeEntries.map(([date]) => date);
     const totalActive = activeDates.length;
 
     if (totalActive === 0)
       return { streak: 0, isLost: false, isBeginner: true };
-
     const hasToday = activeDates.includes(_todayStr);
     const hasYesterday = activeDates.includes(_yestStr);
     const isBeginner = totalActive < 2 && !hasYesterday;
 
-    if (!hasToday && !hasYesterday && totalActive > 0) {
+    if (!hasToday && !hasYesterday && totalActive > 0)
       return { streak: 0, isLost: true, isBeginner: false };
-    }
 
     let streak = 0;
     let currentExpected = activeDates[0];
-
     const getPrevDay = (d: string) => {
       const obj = new Date(d);
       obj.setDate(obj.getDate() - 1);
       return toDateKey(obj.getFullYear(), obj.getMonth(), obj.getDate());
     };
-
     for (const date of activeDates) {
       if (date === currentExpected) {
         streak++;
@@ -434,7 +441,6 @@ export function ProfileTab({
         break;
       }
     }
-
     return { streak, isLost: false, isBeginner };
   }, [records]);
 
@@ -457,6 +463,8 @@ export function ProfileTab({
         <h2 className="pt-profile-name">
           @{currentUser.displayName || "user"}
         </h2>
+
+        <div className="pt-balance-badge">Баланс: {balance} 🪙</div>
 
         {featuredAchievementId && ACHIEVEMENTS_MAP[featuredAchievementId] && (
           <div
@@ -537,13 +545,63 @@ export function ProfileTab({
                 {duelWins}{" "}
                 {duelWins === 1 ? "победа" : duelWins < 5 ? "победы" : "побед"}
               </span>
-              <span
-                style={{ fontSize: "11px", opacity: 0.7, marginLeft: "2px" }}
-              >
-                ›
-              </span>
+              <span className="pt-duel-trophy-arrow">›</span>
             </div>
           )}
+        </div>
+
+        {myGifts.length > 0 && (
+          <div className="pt-settings-section pt-game-zone-section">
+            <h4>Подарки ({myGifts.length}) 🎁</h4>
+            <div className="pt-gifts-grid">
+              {myGifts.map((g) => (
+                <div key={g.id} className="pt-gift-item">
+                  <span className="pt-gift-icon">
+                    {GIFTS_MAP[g.giftId]?.icon || "🎁"}
+                  </span>
+                  <div className="pt-gift-info">
+                    <span className="pt-gift-name">
+                      {GIFTS_MAP[g.giftId]?.name || "Подарок"}
+                    </span>
+                    <span className="pt-gift-sender">от @{g.fromNickname}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="pt-settings-section pt-game-zone-section">
+          <h4>Игровая зона 🎮</h4>
+          <div className="pt-game-cards-wrap">
+            <div className="pt-game-card">
+              <div className="pt-game-icon">💩💨</div>
+              <h4 className="pt-game-title">Flappy Poop</h4>
+              <div className="pt-game-score-record">
+                Рекорд: {flappyHighScore}
+              </div>
+              <button
+                className="pt-btn pt-btn--primary pt-btn--compact"
+                onClick={() => setActiveGame("flappy")}
+              >
+                Играть
+              </button>
+            </div>
+
+            <div className="pt-game-card">
+              <div className="pt-game-icon">🧻⬆️</div>
+              <h4 className="pt-game-title">Doodle Turd</h4>
+              <div className="pt-game-score-record">
+                Рекорд: {doodleHighScore}
+              </div>
+              <button
+                className="pt-btn pt-btn--primary pt-btn--compact pt-btn--gradient"
+                onClick={() => setActiveGame("doodle")}
+              >
+                Играть
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="pt-profile-menu">
@@ -558,7 +616,6 @@ export function ProfileTab({
             )}
             <span className="pt-profile-menu-arrow">›</span>
           </button>
-
           <button
             className="pt-profile-menu-item"
             onClick={handleOpenDuelHistory}
@@ -570,7 +627,6 @@ export function ProfileTab({
             )}
             <span className="pt-profile-menu-arrow">›</span>
           </button>
-
           <button
             className="pt-profile-menu-item"
             onClick={() => setIsAchievModalOpen(true)}
@@ -581,13 +637,12 @@ export function ProfileTab({
               {unlockedAchievements.length}/{ACHIEVEMENTS.length}
             </span>
           </button>
-
           <button
             className="pt-profile-menu-item"
             onClick={() => setIsSettingsOpen(true)}
           >
             <span className="pt-profile-menu-icon">⚙️</span>
-            <span className="pt-profile-menu-text">Настройки приложения</span>
+            <span className="pt-profile-menu-text">Настройки</span>
             <span className="pt-profile-menu-arrow">›</span>
           </button>
         </div>
@@ -599,6 +654,27 @@ export function ProfileTab({
           Выйти из аккаунта
         </button>
       </div>
+
+      {activeGame === "flappy" && (
+        <div className="pt-chat-fullscreen pt-chat-fullscreen--game">
+          <FlappyPoop
+            userId={currentUser.uid}
+            highScore={flappyHighScore}
+            onClose={() => setActiveGame(null)}
+            onRecordBreak={setFlappyHighScore}
+          />
+        </div>
+      )}
+      {activeGame === "doodle" && (
+        <div className="pt-chat-fullscreen pt-chat-fullscreen--game">
+          <DoodleTurd
+            userId={currentUser.uid}
+            highScore={doodleHighScore}
+            onClose={() => setActiveGame(null)}
+            onRecordBreak={setDoodleHighScore}
+          />
+        </div>
+      )}
 
       {isAvatarModalOpen && (
         <div className="pt-overlay" onClick={() => setIsAvatarModalOpen(false)}>
@@ -633,7 +709,6 @@ export function ProfileTab({
           <div className="pt-modal" onClick={(e) => e.stopPropagation()}>
             <div className="pt-modal__handle" />
             <h3 className="pt-modal__title">Заявки в друзья</h3>
-
             {requests.length === 0 ? (
               <p className="pt-empty-friends">Новых заявок пока нет</p>
             ) : (
@@ -664,7 +739,6 @@ export function ProfileTab({
                 ))}
               </div>
             )}
-
             <div className="pt-modal__actions">
               <button
                 className="pt-modal__close"
@@ -685,7 +759,6 @@ export function ProfileTab({
           >
             <div className="pt-modal__handle" />
             <h3 className="pt-modal__title">История дуэлей 📜</h3>
-
             {isHistoryLoading ? (
               <div className="pt-duel-waiting">Загрузка архива...</div>
             ) : duelHistory.length === 0 ? (
@@ -698,7 +771,6 @@ export function ProfileTab({
                 {duelHistory.map((h) => {
                   const isWin = h.winnerId === currentUser.uid;
                   const isDraw = !h.winnerId;
-
                   return (
                     <div
                       key={h.id}
@@ -718,7 +790,6 @@ export function ProfileTab({
                           </span>
                         </div>
                       </div>
-
                       <div className="pt-duel-history-score">
                         <span className="score">
                           {h.myScore} : {h.partnerScore}
@@ -736,7 +807,6 @@ export function ProfileTab({
                 })}
               </div>
             )}
-
             <div className="pt-modal__actions">
               <button
                 className="pt-modal__close"
@@ -754,7 +824,6 @@ export function ProfileTab({
           <div className="pt-modal" onClick={(e) => e.stopPropagation()}>
             <div className="pt-modal__handle" />
             <h3 className="pt-modal__title">Настройки</h3>
-
             <div className="pt-settings-section">
               <h4>Звук завершения</h4>
               <div className="pt-sound-buttons">
@@ -773,17 +842,15 @@ export function ProfileTab({
                 ))}
               </div>
             </div>
-
             <div className="pt-settings-section pt-secret-section">
               <h4>Секретная функция 🤫</h4>
               <p className="pt-secret-desc">
                 Позволяет восстановить упущенный стрик, если ты забыл(а)
                 отметиться вчера.
               </p>
-
               {streakInfo.isBeginner ? (
                 <button className="pt-btn pt-btn--secondary" disabled>
-                  Слишком рано для магии (нужна история от 2 дней)...
+                  Слишком рано (нужна история от 2 дней)
                 </button>
               ) : isCooldown ? (
                 <button className="pt-btn pt-btn--secondary" disabled>
@@ -798,11 +865,10 @@ export function ProfileTab({
                 </button>
               ) : (
                 <button className="pt-btn pt-btn--secondary" disabled>
-                  Твой стрик в порядке, спасать нечего! 😎
+                  Твой стрик в порядке! 😎
                 </button>
               )}
             </div>
-
             <div className="pt-modal__actions">
               <button
                 className="pt-modal__close"
@@ -837,12 +903,10 @@ export function ProfileTab({
                 />
               </div>
             </div>
-
             <div className="pt-achievements-list">
               {ACHIEVEMENTS.map((ach) => {
                 const isUnlocked = unlockedAchievements.includes(ach.id);
                 const isPinned = featuredAchievementId === ach.id;
-
                 return (
                   <div
                     key={ach.id}
@@ -860,17 +924,12 @@ export function ProfileTab({
                       </h4>
                       <p className="pt-achiev-card__desc">{ach.desc}</p>
                     </div>
-
                     {isUnlocked && (
                       <button
                         type="button"
                         className={`pt-pin-btn ${isPinned ? "pinned" : ""}`}
                         onClick={() => handleToggleFeatured(ach.id)}
-                        title={
-                          isPinned
-                            ? "Открепить от профиля"
-                            : "Закрепить в профиле"
-                        }
+                        title={isPinned ? "Открепить" : "Закрепить"}
                       >
                         📌
                       </button>
