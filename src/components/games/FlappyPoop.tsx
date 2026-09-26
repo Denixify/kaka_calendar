@@ -83,8 +83,6 @@ export function FlappyPoop({
       }
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "#f8fafc";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.strokeStyle = "#e2e8f0";
       ctx.lineWidth = 2;
 
@@ -167,12 +165,15 @@ export function FlappyPoop({
       }
 
       ctx.save();
-      ctx.shadowColor = "rgba(0, 0, 0, 0.25)";
-      ctx.shadowBlur = 8;
-      ctx.shadowOffsetY = 4;
       ctx.translate(50 + 15, state.poopY + 15);
       const rotation = Math.min(Math.max(state.velocity * 0.1, -0.5), 1.5);
       ctx.rotate(rotation);
+
+      ctx.fillStyle = "#000000";
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
+
       ctx.font = "34px Arial";
       ctx.fillText("💩", -18, 12);
       ctx.restore();
@@ -218,11 +219,16 @@ export function FlappyPoop({
         <button className="pt-back-btn pt-back-btn--game" onClick={onClose}>
           ← Назад
         </button>
-        <h3 className="pt-details-title">Flappy Poop</h3>
-        <div className="pt-game-score pt-game-score--flappy">{score}</div>
+        <div className="pt-game-title-group">
+          <h3 className="pt-game-title">Flappy Poop</h3>
+          <div className="pt-game-score pt-game-score--flappy">{score}</div>
+        </div>
       </div>
 
-      <div className="pt-game-canvas-wrap" onPointerDown={jump}>
+      <div
+        className="pt-game-canvas-wrap pt-game-canvas-wrap--flappy"
+        onPointerDown={jump}
+      >
         <canvas
           ref={canvasRef}
           width={320}

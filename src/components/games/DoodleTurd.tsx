@@ -4,7 +4,6 @@ import { db } from "../../firebase";
 
 const GRAVITY = 0.4;
 const JUMP = -10;
-const SPEED = 5;
 const PLATFORM_W = 66;
 const PLATFORM_H = 12;
 
@@ -73,8 +72,11 @@ export function DoodleTurd({
     const loop = () => {
       const state = gameState.current;
 
-      if (state.isMovingLeft) state.x -= SPEED;
-      if (state.isMovingRight) state.x += SPEED;
+      if (state.isMovingLeft) state.vx -= 1.5;
+      if (state.isMovingRight) state.vx += 1.5;
+
+      state.vx *= 0.82;
+      state.x += state.vx;
 
       if (state.x < -30) state.x = 320;
       if (state.x > 320) state.x = -30;
@@ -114,8 +116,7 @@ export function DoodleTurd({
         });
       }
 
-      ctx.fillStyle = "#f8fafc";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       ctx.strokeStyle = "#e2e8f0";
       ctx.lineWidth = 2;
@@ -148,14 +149,21 @@ export function DoodleTurd({
         ctx.roundRect(p.x, p.y, PLATFORM_W, PLATFORM_H, 6);
         ctx.fill();
 
+        ctx.save();
+        ctx.fillStyle = "#000000";
+        ctx.shadowColor = "transparent";
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetY = 0;
         ctx.font = "26px Arial";
         ctx.fillText("🧻", p.x + PLATFORM_W / 2 - 13, p.y + 4);
+        ctx.restore();
       });
 
       ctx.save();
-      ctx.shadowColor = "rgba(0, 0, 0, 0.25)";
-      ctx.shadowBlur = 8;
-      ctx.shadowOffsetY = 4;
+      ctx.fillStyle = "#000000";
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
       ctx.font = "34px Arial";
       ctx.fillText("💩", state.x, state.y + 30);
       ctx.restore();
@@ -172,21 +180,34 @@ export function DoodleTurd({
     return () => cancelAnimationFrame(animationId);
   }, [isStarted, isGameOver, handleGameOver]);
 
-  const handlePointerDown = (e: React.PointerEvent) => {
-    e.preventDefault();
-    if (!isStarted) {
-      gameState.current.platforms = initPlatforms();
-      gameState.current.vy = JUMP;
-      setIsStarted(true);
-      return;
-    }
+  const updateDirection = (e: React.PointerEvent) => {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
     const clickX = e.clientX - rect.left;
     if (clickX < rect.width / 2) {
       gameState.current.isMovingLeft = true;
+      gameState.current.isMovingRight = false;
     } else {
       gameState.current.isMovingRight = true;
+      gameState.current.isMovingLeft = false;
+    }
+  };
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (!isStarted) {
+      gameState.current.platforms = initPlatforms();
+      gameState.current.vy = JUMP;
+      gameState.current.vx = 0;
+      setIsStarted(true);
+      return;
+    }
+    updateDirection(e);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isStarted || isGameOver) return;
+    if (gameState.current.isMovingLeft || gameState.current.isMovingRight) {
+      updateDirection(e);
     }
   };
 
@@ -217,16 +238,19 @@ export function DoodleTurd({
         <button className="pt-back-btn pt-back-btn--game" onClick={onClose}>
           ← Назад
         </button>
-        <h3 className="pt-details-title">Doodle Turd</h3>
-        <div className="pt-game-score pt-game-score--doodle">{score}</div>
+        <div className="pt-game-title-group">
+          <h3 className="pt-game-title">Doodle Turd</h3>
+          <div className="pt-game-score pt-game-score--doodle">{score}</div>
+        </div>
       </div>
 
-      <div className="pt-game-canvas-wrap">
+      <div className="pt-game-canvas-wrap pt-game-canvas-wrap--doodle">
         <canvas
           ref={canvasRef}
           width={320}
           height={500}
           onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           onPointerOut={handlePointerUp}
           className="pt-game-canvas pt-game-canvas--doodle"
@@ -238,7 +262,7 @@ export function DoodleTurd({
             <p className="pt-game-overlay-text pt-game-overlay-text--doodle">
               Тапни слева или справа
               <br />
-              для управления
+              (можно просто водить пальцем)
             </p>
           </div>
         )}

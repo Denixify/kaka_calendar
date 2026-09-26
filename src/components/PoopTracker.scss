@@ -2156,7 +2156,7 @@ body.chat-is-open {
   align-items: center;
   gap: 6px;
   margin: 8px auto 4px;
-  padding: 5px 14px;
+  padding: 6px 14px;
   background: rgba(234, 179, 8, 0.12);
   border: 1px solid rgba(234, 179, 8, 0.35);
   border-radius: 20px;
@@ -2784,33 +2784,57 @@ body.chat-is-open {
 .pt-chat-fullscreen--game {
   z-index: 999999;
   background: var(--pt-surface);
+  padding: 0;
 }
 
 .pt-game-modal {
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 16px;
+  padding: env(safe-area-inset-top, 16px) 0 0 0;
+  border-radius: 0;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .pt-game-header {
-  margin-bottom: 16px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  position: relative;
+  margin-bottom: 12px;
   flex-shrink: 0;
+  padding: 0 16px;
 }
 
 .pt-back-btn--game {
+  position: absolute;
+  left: 16px;
+  top: 0;
   margin: 0;
+}
+
+.pt-game-title-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.pt-game-title {
+  margin: 0;
+  font-size: 18px;
 }
 
 .pt-game-score {
   font-weight: bold;
-  width: 60px;
-  text-align: right;
+  font-size: 24px;
+  text-align: center;
 
   &--doodle {
     color: #d97706;
   }
-
   &--flappy {
     color: var(--pt-accent);
   }
@@ -2822,25 +2846,26 @@ body.chat-is-open {
   justify-content: center;
   position: relative;
   min-height: 0;
-}
-
-.pt-game-canvas {
-  border-radius: 16px;
-  touch-action: none;
-  width: 100%;
-  max-width: 320px;
-  height: 100%;
-  max-height: 500px;
-  object-fit: contain;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  border-top-left-radius: 24px;
+  border-top-right-radius: 24px;
+  overflow: hidden;
 
   &--doodle {
     background: #fffbeb;
   }
-
   &--flappy {
     background: #f8fafc;
   }
+}
+
+.pt-game-canvas {
+  touch-action: none;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  outline: none;
 }
 
 .pt-game-overlay-start {

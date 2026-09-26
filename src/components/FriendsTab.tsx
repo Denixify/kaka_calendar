@@ -327,27 +327,17 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
   const [balance, setBalance] = useState(0);
 
   useEffect(() => {
-    let isMounted = true;
-    async function loadCurrentUserProfile() {
-      try {
-        const uSnap = await getDoc(doc(db, "users", currentUser.uid));
-        if (uSnap.exists() && isMounted) {
-          const data = uSnap.data();
-          setCurrentUserAvatar(data.avatar || "👑");
-          setMyFlappyScore(data.flappyHighScore || 0);
-          setMyDoodleScore(data.doodleHighScore || 0);
-
-          if (data.balance !== undefined) setBalance(data.balance);
-        }
-      } catch (e) {
-        console.error("Ошибка загрузки профиля пользователя:", e);
+    const unsub = onSnapshot(doc(db, "users", currentUser.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setCurrentUserAvatar(data.avatar || "👑");
+        setMyFlappyScore(data.flappyHighScore || 0);
+        setMyDoodleScore(data.doodleHighScore || 0);
+        if (data.balance !== undefined) setBalance(data.balance);
       }
-    }
-    loadCurrentUserProfile();
-    return () => {
-      isMounted = false;
-    };
-  }, [currentUser.uid, activeGame]);
+    });
+    return () => unsub();
+  }, [currentUser.uid]);
 
   useEffect(() => {
     let isMounted = true;
@@ -457,27 +447,19 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
 
   useEffect(() => {
     if (!selectedFriend) return;
-    let isMounted = true;
-    async function fetchFriendGifts() {
-      try {
-        const snap = await getDocs(
-          collection(db, "users", selectedFriend!.uid, "gifts_received"),
+
+    const unsubGifts = onSnapshot(
+      collection(db, "users", selectedFriend.uid, "gifts_received"),
+      (snap) => {
+        setFriendGifts(
+          snap.docs
+            .map((d) => ({ id: d.id, ...d.data() }) as ReceivedGift)
+            .sort((a, b) => b.createdAt - a.createdAt),
         );
-        if (isMounted) {
-          setFriendGifts(
-            snap.docs
-              .map((d) => ({ id: d.id, ...d.data() }) as ReceivedGift)
-              .sort((a, b) => b.createdAt - a.createdAt),
-          );
-        }
-      } catch (e) {
-        console.error("Ошибка загрузки подарков друга:", e);
-      }
-    }
-    fetchFriendGifts();
-    return () => {
-      isMounted = false;
-    };
+      },
+    );
+
+    return () => unsubGifts();
   }, [selectedFriend]);
 
   useEffect(() => {

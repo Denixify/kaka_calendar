@@ -11,6 +11,7 @@ import {
   setDoc,
   query,
   where,
+  onSnapshot,
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import type { Records } from "./PoopTracker";
@@ -185,87 +186,78 @@ export function ProfileTab({
   ]);
 
   useEffect(() => {
-    let isMounted = true;
-    async function loadUserProfile() {
-      try {
-        const userSnap = await getDoc(doc(db, "users", currentUser.uid));
-        if (userSnap.exists() && isMounted) {
-          const data = userSnap.data();
-          if (data.balance !== undefined) setBalance(data.balance);
-          if (data.bio !== undefined) {
-            setBio(data.bio);
-            setBioDraft(data.bio);
-            localStorage.setItem(`pt-bio-cache-${currentUser.uid}`, data.bio);
-          }
-          if (data.avatar) {
-            setAvatar(data.avatar);
+    const unsub = onSnapshot(doc(db, "users", currentUser.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.balance !== undefined) setBalance(data.balance);
+        if (data.bio !== undefined) {
+          setBio(data.bio);
+          setBioDraft(data.bio);
+          localStorage.setItem(`pt-bio-cache-${currentUser.uid}`, data.bio);
+        }
+        if (data.avatar) {
+          setAvatar(data.avatar);
+          localStorage.setItem(
+            `pt-avatar-cache-${currentUser.uid}`,
+            data.avatar,
+          );
+        }
+        if (data.duelWins !== undefined) {
+          setDuelWins(data.duelWins);
+          localStorage.setItem(
+            `pt-duel-wins-${currentUser.uid}`,
+            String(data.duelWins),
+          );
+        }
+        if (data.flappyHighScore !== undefined)
+          setFlappyHighScore(data.flappyHighScore);
+        if (data.doodleHighScore !== undefined)
+          setDoodleHighScore(data.doodleHighScore);
+        if (data.featuredAchievementId !== undefined) {
+          setFeaturedAchievementId(data.featuredAchievementId);
+          if (data.featuredAchievementId) {
             localStorage.setItem(
-              `pt-avatar-cache-${currentUser.uid}`,
-              data.avatar,
+              `pt-featured-ach-${currentUser.uid}`,
+              data.featuredAchievementId,
             );
-          }
-          if (data.duelWins !== undefined) {
-            setDuelWins(data.duelWins);
-            localStorage.setItem(
-              `pt-duel-wins-${currentUser.uid}`,
-              String(data.duelWins),
-            );
-          }
-          if (data.flappyHighScore !== undefined)
-            setFlappyHighScore(data.flappyHighScore);
-          if (data.doodleHighScore !== undefined)
-            setDoodleHighScore(data.doodleHighScore);
-          if (data.featuredAchievementId !== undefined) {
-            setFeaturedAchievementId(data.featuredAchievementId);
-            if (data.featuredAchievementId) {
-              localStorage.setItem(
-                `pt-featured-ach-${currentUser.uid}`,
-                data.featuredAchievementId,
-              );
-            } else {
-              localStorage.removeItem(`pt-featured-ach-${currentUser.uid}`);
-            }
+          } else {
+            localStorage.removeItem(`pt-featured-ach-${currentUser.uid}`);
           }
         }
-      } catch (e) {
-        console.error("Ошибка загрузки профиля:", e);
       }
-    }
-    loadUserProfile();
-    return () => {
-      isMounted = false;
-    };
+    });
+
+    return () => unsub();
   }, [currentUser.uid]);
 
   useEffect(() => {
-    let isMounted = true;
-    async function fetchRequestsAndGifts() {
-      try {
-        const [requestsSnap, giftsSnap] = await Promise.all([
-          getDocs(collection(db, "users", currentUser.uid, "friend_requests")),
-          getDocs(collection(db, "users", currentUser.uid, "gifts_received")),
-        ]);
-        if (isMounted) {
-          setRequests(
-            requestsSnap.docs.map((d) => ({
-              fromUid: d.data().fromUid,
-              fromNickname: d.data().fromNickname,
-              fromAvatar: d.data().fromAvatar,
-            })),
-          );
-          setMyGifts(
-            giftsSnap.docs
-              .map((d) => ({ id: d.id, ...d.data() }) as ReceivedGift)
-              .sort((a, b) => b.createdAt - a.createdAt),
-          );
-        }
-      } catch (e) {
-        console.error("Ошибка загрузки данных профиля:", e);
-      }
-    }
-    fetchRequestsAndGifts();
+    const unsubGifts = onSnapshot(
+      collection(db, "users", currentUser.uid, "gifts_received"),
+      (snap) => {
+        setMyGifts(
+          snap.docs
+            .map((d) => ({ id: d.id, ...d.data() }) as ReceivedGift)
+            .sort((a, b) => b.createdAt - a.createdAt),
+        );
+      },
+    );
+
+    const unsubRequests = onSnapshot(
+      collection(db, "users", currentUser.uid, "friend_requests"),
+      (snap) => {
+        setRequests(
+          snap.docs.map((d) => ({
+            fromUid: d.data().fromUid,
+            fromNickname: d.data().fromNickname,
+            fromAvatar: d.data().fromAvatar,
+          })),
+        );
+      },
+    );
+
     return () => {
-      isMounted = false;
+      unsubGifts();
+      unsubRequests();
     };
   }, [currentUser.uid]);
 
