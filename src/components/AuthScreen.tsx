@@ -17,6 +17,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const cleanNickname = rawNickname
     .trim()
@@ -76,7 +77,7 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
         );
         onSuccess(cred.user.displayName || cleanNickname);
       }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       if (
         err.code === "auth/invalid-credential" ||
@@ -128,14 +129,23 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
 
           <label className="pt-auth-label">
             Пароль
-            <input
-              type="password"
-              className="pt-input pt-auth-input-pass"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+            <div className="pt-password-wrap">
+              <input
+                type={showPassword ? "text" : "password"}
+                className="pt-input"
+                placeholder="Пароль"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <button
+                type="button"
+                className="pt-password-toggle"
+                onClick={() => setShowPassword(!showPassword)}
+                title={showPassword ? "Скрыть пароль" : "Показать пароль"}
+              >
+                {showPassword ? "👁️" : "🙈"}
+              </button>
+            </div>
           </label>
 
           <button

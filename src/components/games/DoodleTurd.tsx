@@ -62,6 +62,12 @@ export function DoodleTurd({
   }, [highScore, onRecordBreak, userId]);
 
   useEffect(() => {
+    updateDoc(doc(db, "users", userId), {
+      balance: increment(1),
+    }).catch(console.error);
+  }, [userId]);
+
+  useEffect(() => {
     if (!isStarted || isGameOver) return;
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");

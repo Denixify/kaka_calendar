@@ -54,6 +54,12 @@ export function FlappyPoop({
   }, [highScore, onRecordBreak, userId]);
 
   useEffect(() => {
+    updateDoc(doc(db, "users", userId), {
+      balance: increment(1),
+    }).catch(console.error);
+  }, [userId]);
+
+  useEffect(() => {
     if (!isStarted || isGameOver) return;
     const canvas = canvasRef.current;
     if (!canvas) return;

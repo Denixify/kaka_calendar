@@ -1,4 +1,11 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback,
+  Fragment,
+} from "react";
 import type { FormEvent } from "react";
 import type { User } from "firebase/auth";
 import {
@@ -879,16 +886,28 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
           {messages.length === 0 ? (
             <p className="pt-empty-comments">Напиши первое сообщение!</p>
           ) : (
-            messages.map((m) => {
+            messages.map((m, index) => {
               const isMe = m.senderUid === currentUser.uid;
+
+              const currentMsgDate = new Date(m.createdAt).toLocaleDateString(
+                [],
+                { day: "numeric", month: "long" },
+              );
+              const prevMsgDate =
+                index > 0
+                  ? new Date(messages[index - 1].createdAt).toLocaleDateString(
+                      [],
+                      { day: "numeric", month: "long" },
+                    )
+                  : null;
+              const showDate = currentMsgDate !== prevMsgDate;
+
+              let bubbleContent;
 
               if (m.type === "gift" && m.giftId && GIFTS_MAP[m.giftId]) {
                 const gift = GIFTS_MAP[m.giftId];
-                return (
-                  <div
-                    key={m.id}
-                    className={`pt-chat-bubble ${isMe ? "me" : "them"}`}
-                  >
+                bubbleContent = (
+                  <div className={`pt-chat-bubble ${isMe ? "me" : "them"}`}>
                     <div className="pt-chat-bubble-content--gift">
                       <div className="pt-chat-bubble-gift-icon">
                         {gift.icon}
@@ -908,15 +927,12 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                     </div>
                   </div>
                 );
-              }
-
-              if (m.type === "game_challenge") {
+              } else if (m.type === "game_challenge") {
                 const gameName =
                   m.gameType === "flappy" ? "Flappy Poop" : "Doodle Turd";
                 const icon = m.gameType === "flappy" ? "💩💨" : "🧻⬆️";
-                return (
+                bubbleContent = (
                   <div
-                    key={m.id}
                     className={`pt-chat-bubble pt-duel-invite ${isMe ? "me" : "them"}`}
                   >
                     <h4 className="pt-duel-title">
@@ -941,13 +957,10 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                     </span>
                   </div>
                 );
-              }
-
-              if (m.type === "duel_invite") {
+              } else if (m.type === "duel_invite") {
                 if (m.duelStatus === "declined") {
-                  return (
+                  bubbleContent = (
                     <div
-                      key={m.id}
                       className={`pt-chat-bubble pt-duel-invite declined ${isMe ? "me" : "them"}`}
                     >
                       <h4 className="pt-duel-title">Вызов отклонен ❌</h4>
@@ -958,12 +971,9 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                       </p>
                     </div>
                   );
-                }
-
-                if (m.duelStatus === "active") {
-                  return (
+                } else if (m.duelStatus === "active") {
+                  bubbleContent = (
                     <div
-                      key={m.id}
                       className={`pt-chat-bubble pt-duel-invite active ${isMe ? "me" : "them"}`}
                     >
                       <h4 className="pt-duel-title">⚔️ Идет битва!</h4>
@@ -974,39 +984,49 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                       />
                     </div>
                   );
+                } else {
+                  bubbleContent = (
+                    <div
+                      className={`pt-chat-bubble pt-duel-invite ${isMe ? "me" : "them"}`}
+                    >
+                      <h4 className="pt-duel-title">⚔️ Вызов на дуэль!</h4>
+                      <p className="pt-duel-disclaimer">
+                        Наше приложение не умеет определять качество похода в
+                        туалет с помощью ИИ, так что надеемся на Вашу честность.
+                      </p>
+                      {!isMe ? (
+                        <div className="pt-duel-actions">
+                          <button
+                            className="pt-btn pt-btn--primary pt-btn--compact"
+                            onClick={() => handleAcceptDuel(m.id, m.duelId!)}
+                          >
+                            Принять
+                          </button>
+                          <button
+                            className="pt-btn pt-btn--secondary pt-btn--compact pt-btn--danger-text"
+                            onClick={() => handleDeclineDuel(m.id, m.duelId!)}
+                          >
+                            Отказаться
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="pt-duel-waiting">
+                          ⏳ Ожидаем ответа соперника...
+                        </div>
+                      )}
+                      <span className="pt-chat-time">
+                        {new Date(m.createdAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </div>
+                  );
                 }
-
-                return (
-                  <div
-                    key={m.id}
-                    className={`pt-chat-bubble pt-duel-invite ${isMe ? "me" : "them"}`}
-                  >
-                    <h4 className="pt-duel-title">⚔️ Вызов на дуэль!</h4>
-                    <p className="pt-duel-disclaimer">
-                      Наше приложение не умеет определять качество похода в
-                      туалет с помощью ИИ, так что надеемся на Вашу честность.
-                    </p>
-
-                    {!isMe ? (
-                      <div className="pt-duel-actions">
-                        <button
-                          className="pt-btn pt-btn--primary pt-btn--compact"
-                          onClick={() => handleAcceptDuel(m.id, m.duelId!)}
-                        >
-                          Принять
-                        </button>
-                        <button
-                          className="pt-btn pt-btn--secondary pt-btn--compact pt-btn--danger-text"
-                          onClick={() => handleDeclineDuel(m.id, m.duelId!)}
-                        >
-                          Отказаться
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="pt-duel-waiting">
-                        ⏳ Ожидаем ответа соперника...
-                      </div>
-                    )}
+              } else {
+                bubbleContent = (
+                  <div className={`pt-chat-bubble ${isMe ? "me" : "them"}`}>
+                    <span>{m.text}</span>
                     <span className="pt-chat-time">
                       {new Date(m.createdAt).toLocaleTimeString([], {
                         hour: "2-digit",
@@ -1018,18 +1038,14 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
               }
 
               return (
-                <div
-                  key={m.id}
-                  className={`pt-chat-bubble ${m.senderUid === currentUser.uid ? "me" : "them"}`}
-                >
-                  <span>{m.text}</span>
-                  <span className="pt-chat-time">
-                    {new Date(m.createdAt).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                </div>
+                <Fragment key={m.id}>
+                  {showDate && (
+                    <div className="pt-chat-date-separator">
+                      <span>{currentMsgDate}</span>
+                    </div>
+                  )}
+                  {bubbleContent}
+                </Fragment>
               );
             })
           )}
