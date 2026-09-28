@@ -1,5 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
+import { getMessaging, isSupported } from "firebase/messaging";
 import {
   initializeFirestore,
   persistentLocalCache,
@@ -24,3 +25,18 @@ export const db = initializeFirestore(app, {
 });
 
 export const DOMAIN_SUFFIX = "@poopstagram.local";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export let messaging: any = null;
+
+isSupported()
+  .then((supported) => {
+    if (supported) {
+      messaging = getMessaging(app);
+    } else {
+      console.warn("Push-уведомления не поддерживаются в этом браузере.");
+    }
+  })
+  .catch((err) => {
+    console.warn("Ошибка проверки поддержки уведомлений:", err);
+  });

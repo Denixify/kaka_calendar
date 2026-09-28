@@ -13,7 +13,8 @@ import {
   where,
   onSnapshot,
 } from "firebase/firestore";
-import { auth, db } from "../firebase";
+import { auth, db, messaging } from "../firebase";
+import { getToken } from "firebase/messaging";
 import type { Records } from "./PoopTracker";
 import {
   ACHIEVEMENTS,
@@ -127,6 +128,10 @@ export function ProfileTab({
     string | null
   >(() => localStorage.getItem(`pt-featured-ach-${currentUser.uid}`) || null);
 
+  const [featuredGiftId, setFeaturedGiftId] = useState<string | null>(
+    () => localStorage.getItem(`pt-featured-gift-${currentUser.uid}`) || null,
+  );
+
   const [soundPref, setSoundPref] = useState<string>(
     () => localStorage.getItem("pt-sound-pref") || "metalpipe.mp3",
   );
@@ -137,6 +142,9 @@ export function ProfileTab({
 
   const [nowTime] = useState(() => new Date().getTime());
   const [balance, setBalance] = useState<number>(0);
+
+  const [fcmError, setFcmError] = useState<string | null>(null);
+  const [fcmSuccess, setFcmSuccess] = useState(false);
 
   useEffect(() => {
     const handleOffline = () => setIsOffline(true);
@@ -224,6 +232,20 @@ export function ProfileTab({
             localStorage.removeItem(`pt-featured-ach-${currentUser.uid}`);
           }
         }
+        if (data.featuredGiftId !== undefined) {
+          setFeaturedGiftId(data.featuredGiftId);
+          if (data.featuredGiftId) {
+            localStorage.setItem(
+              `pt-featured-gift-${currentUser.uid}`,
+              data.featuredGiftId,
+            );
+          } else {
+            localStorage.removeItem(`pt-featured-gift-${currentUser.uid}`);
+          }
+        }
+        if (data.fcmToken) {
+          setFcmSuccess(true);
+        }
       }
     });
 
@@ -261,6 +283,42 @@ export function ProfileTab({
     };
   }, [currentUser.uid]);
 
+  const requestNotificationPermission = async () => {
+    if (!messaging) {
+      setFcmError(
+        "Твой браузер, устройство или режим инкогнито не поддерживает уведомления.",
+      );
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === "granted") {
+        const currentToken = await getToken(messaging, {
+          vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
+        });
+
+        if (currentToken) {
+          await updateDoc(doc(db, "users", currentUser.uid), {
+            fcmToken: currentToken,
+          });
+          setFcmSuccess(true);
+          setFcmError(null);
+          alert("Уведомления успешно включены! 🔔");
+        } else {
+          setFcmError("Не удалось получить токен устройства.");
+        }
+      } else {
+        setFcmError("Вы запретили уведомления в браузере.");
+      }
+    } catch (err) {
+      console.error("Ошибка при запросе разрешений: ", err);
+      setFcmError(
+        "Ошибка настройки уведомлений. Проверь поддержку в браузере/устройстве.",
+      );
+    }
+  };
+
   const handleOpenDuelHistory = useCallback(async () => {
     setIsDuelHistoryOpen(true);
     setIsHistoryLoading(true);
@@ -277,12 +335,23 @@ export function ProfileTab({
       );
       const [s1, s2] = await Promise.all([getDocs(q1), getDocs(q2)]);
       const allDocs = [...s1.docs, ...s2.docs];
+
       const list: FinishedDuel[] = [];
+      const uniqueKeys = new Set();
 
       for (const d of allDocs) {
         const data = d.data();
         const partnerUid =
           data.player1 === currentUser.uid ? data.player2 : data.player1;
+        const myScore = data.scores?.[currentUser.uid] || 0;
+        const partnerScore = data.scores?.[partnerUid] || 0;
+
+        const endDay = Math.floor((data.endDate || 0) / (1000 * 60 * 60 * 24));
+        const uKey = `${partnerUid}_${endDay}_${myScore}_${partnerScore}`;
+
+        if (uniqueKeys.has(uKey)) continue;
+        uniqueKeys.add(uKey);
+
         let partnerName = "Игрок";
         let partnerAvatar = "👑";
         const uSnap = await getDoc(doc(db, "users", partnerUid));
@@ -291,12 +360,13 @@ export function ProfileTab({
           partnerName = uData.nickname || "user";
           partnerAvatar = uData.avatar || "👑";
         }
+
         list.push({
           id: d.id,
           partnerNickname: partnerName,
           partnerAvatar: partnerAvatar,
-          myScore: data.scores?.[currentUser.uid] || 0,
-          partnerScore: data.scores?.[partnerUid] || 0,
+          myScore,
+          partnerScore,
           winnerId: data.winnerId || null,
           endedAt: data.endDate || data.createdAt || new Date().getTime(),
         });
@@ -322,6 +392,21 @@ export function ProfileTab({
       });
     } catch (e) {
       console.error("Ошибка обновления закрепленного достижения:", e);
+    }
+  };
+
+  const handleToggleFeaturedGift = async (giftId: string) => {
+    const nextId = featuredGiftId === giftId ? null : giftId;
+    setFeaturedGiftId(nextId);
+    if (nextId)
+      localStorage.setItem(`pt-featured-gift-${currentUser.uid}`, nextId);
+    else localStorage.removeItem(`pt-featured-gift-${currentUser.uid}`);
+    try {
+      await updateDoc(doc(db, "users", currentUser.uid), {
+        featuredGiftId: nextId,
+      });
+    } catch (e) {
+      console.error("Ошибка обновления закрепленного подарка:", e);
     }
   };
 
@@ -473,6 +558,27 @@ export function ProfileTab({
           </div>
         )}
 
+        {featuredGiftId && GIFTS_MAP[featuredGiftId] && (
+          <div
+            className="pt-featured-badge"
+            style={{
+              borderColor: "#f472b6",
+              color: "#c026d3",
+              background: "#fdf2f8",
+              marginTop: "8px",
+            }}
+            onClick={() => handleToggleFeaturedGift(featuredGiftId)}
+            title="Нажми, чтобы открепить"
+          >
+            <span className="pt-featured-badge__icon">
+              {GIFTS_MAP[featuredGiftId].icon}
+            </span>
+            <span className="pt-featured-badge__title">
+              {GIFTS_MAP[featuredGiftId].name}
+            </span>
+          </div>
+        )}
+
         <p className={`pt-profile-desc ${isOffline ? "offline" : ""}`}>
           {isOffline
             ? "⚠️ Нет сети. Локальный режим."
@@ -542,26 +648,44 @@ export function ProfileTab({
           )}
         </div>
 
-        {myGifts.length > 0 && (
-          <div className="pt-settings-section pt-game-zone-section">
-            <h4>Подарки ({myGifts.length}) 🎁</h4>
+        <div className="pt-settings-section pt-game-zone-section">
+          <h4>Подарки ({myGifts.length}) 🎁</h4>
+          {myGifts.length > 0 ? (
             <div className="pt-gifts-grid">
-              {myGifts.map((g) => (
-                <div key={g.id} className="pt-gift-item">
-                  <span className="pt-gift-icon">
-                    {GIFTS_MAP[g.giftId]?.icon || "🎁"}
-                  </span>
-                  <div className="pt-gift-info">
-                    <span className="pt-gift-name">
-                      {GIFTS_MAP[g.giftId]?.name || "Подарок"}
+              {myGifts.map((g) => {
+                const isFeatured = featuredGiftId === g.giftId;
+                return (
+                  <div
+                    key={g.id}
+                    className={`pt-gift-item pt-gift-item--clickable ${isFeatured ? "pt-gift-item--featured" : ""}`}
+                    onClick={() => handleToggleFeaturedGift(g.giftId)}
+                    title="Нажми, чтобы закрепить в профиле!"
+                  >
+                    <span className="pt-gift-icon">
+                      {GIFTS_MAP[g.giftId]?.icon || "🎁"}
                     </span>
-                    <span className="pt-gift-sender">от @{g.fromNickname}</span>
+                    <div className="pt-gift-info">
+                      <span className="pt-gift-name">
+                        {GIFTS_MAP[g.giftId]?.name || "Подарок"}
+                      </span>
+                      <span className="pt-gift-sender">
+                        от @{g.fromNickname}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="pt-empty-state-card">
+              <span className="pt-empty-state-icon">🎁</span>
+              <p>
+                У тебя пока нет подарков. Отправь кому-нибудь подарок первым,
+                чтобы получить что-то взамен!
+              </p>
+            </div>
+          )}
+        </div>
 
         <div className="pt-settings-section pt-game-zone-section">
           <h4>Игровая зона 🎮</h4>
@@ -754,10 +878,13 @@ export function ProfileTab({
             {isHistoryLoading ? (
               <div className="pt-duel-waiting">Загрузка архива...</div>
             ) : duelHistory.length === 0 ? (
-              <p className="pt-empty-friends">
-                Завершённых дуэлей пока нет. Самое время бросить кому-нибудь
-                вызов!
-              </p>
+              <div className="pt-empty-state-card">
+                <span className="pt-empty-state-icon">⚔️</span>
+                <p>
+                  Завершённых дуэлей пока нет. Самое время бросить кому-нибудь
+                  вызов!
+                </p>
+              </div>
             ) : (
               <div className="pt-duel-history-list">
                 {duelHistory.map((h) => {
@@ -816,6 +943,33 @@ export function ProfileTab({
           <div className="pt-modal" onClick={(e) => e.stopPropagation()}>
             <div className="pt-modal__handle" />
             <h3 className="pt-modal__title">Настройки</h3>
+
+            <div className="pt-settings-section">
+              <h4>Уведомления 🔔</h4>
+              <p className="pt-secret-desc">
+                Включи пуши, чтобы не пропустить вызовы на дуэль и новые
+                подарки.
+              </p>
+              <button
+                className="pt-btn pt-btn--primary pt-btn--compact"
+                onClick={requestNotificationPermission}
+                disabled={fcmSuccess}
+              >
+                {fcmSuccess ? "Включено" : "Включить уведомления"}
+              </button>
+              {fcmError && (
+                <div
+                  style={{
+                    color: "#ef4444",
+                    fontSize: "12px",
+                    marginTop: "8px",
+                  }}
+                >
+                  {fcmError}
+                </div>
+              )}
+            </div>
+
             <div className="pt-settings-section">
               <h4>Звук завершения</h4>
               <div className="pt-sound-buttons">
@@ -834,6 +988,7 @@ export function ProfileTab({
                 ))}
               </div>
             </div>
+
             <div className="pt-settings-section pt-secret-section">
               <h4>Секретная функция 🤫</h4>
               <p className="pt-secret-desc">

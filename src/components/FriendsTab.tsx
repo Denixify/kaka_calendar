@@ -68,6 +68,7 @@ interface FriendProfile {
   avatar?: string;
   bio?: string;
   featuredAchievementId?: string | null;
+  featuredGiftId?: string | null;
   flappyHighScore?: number;
   doodleHighScore?: number;
 }
@@ -246,6 +247,7 @@ function DuelCardView({
 
   return (
     <div>
+      <h4 className="pt-duel-title">⚔️ Идет битва!</h4>
       <div className="pt-duel-scoreboard">
         <div
           className={`pt-duel-score-col ${myScore >= partnerScore ? "leading" : ""}`}
@@ -364,6 +366,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
               avatar: uData.avatar || "👑",
               bio: uData.bio,
               featuredAchievementId: uData.featuredAchievementId || null,
+              featuredGiftId: uData.featuredGiftId || null,
               flappyHighScore: uData.flappyHighScore || 0,
               doodleHighScore: uData.doodleHighScore || 0,
             });
@@ -539,6 +542,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
             avatar: pData.avatar || "👑",
             bio: pData.bio,
             featuredAchievementId: pData.featuredAchievementId || null,
+            featuredGiftId: pData.featuredGiftId || null,
             flappyHighScore: pData.flappyHighScore || 0,
             doodleHighScore: pData.doodleHighScore || 0,
           });
@@ -976,7 +980,6 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                     <div
                       className={`pt-chat-bubble pt-duel-invite active ${isMe ? "me" : "them"}`}
                     >
-                      <h4 className="pt-duel-title">⚔️ Идет битва!</h4>
                       <DuelCardView
                         duelId={m.duelId!}
                         currentUserId={currentUser.uid}
@@ -1193,9 +1196,29 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                 </div>
               )}
 
-            {friendGifts.length > 0 && (
-              <div className="pt-settings-section pt-game-zone-section">
-                <h4>Подарки ({friendGifts.length}) 🎁</h4>
+            {selectedFriend.featuredGiftId &&
+              GIFTS_MAP[selectedFriend.featuredGiftId] && (
+                <div
+                  className="pt-featured-badge"
+                  style={{
+                    borderColor: "#f472b6",
+                    color: "#c026d3",
+                    background: "#fdf2f8",
+                    marginTop: "8px",
+                  }}
+                >
+                  <span className="pt-featured-badge__icon">
+                    {GIFTS_MAP[selectedFriend.featuredGiftId].icon}
+                  </span>
+                  <span className="pt-featured-badge__title">
+                    {GIFTS_MAP[selectedFriend.featuredGiftId].name}
+                  </span>
+                </div>
+              )}
+
+            <div className="pt-settings-section pt-game-zone-section">
+              <h4>Подарки ({friendGifts.length}) 🎁</h4>
+              {friendGifts.length > 0 ? (
                 <div className="pt-gifts-grid">
                   {friendGifts.map((g) => (
                     <div key={g.id} className="pt-gift-item">
@@ -1213,8 +1236,13 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              ) : (
+                <div className="pt-empty-state-card">
+                  <span className="pt-empty-state-icon">🎁</span>
+                  <p>У этого пользователя пока нет подарков.</p>
+                </div>
+              )}
+            </div>
 
             <div className="pt-settings-section pt-game-zone-section">
               <h4>Рекорды в играх 🎮</h4>
@@ -1298,15 +1326,13 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
 
           <div className="cal-grid">
             {cells.map((day, idx) => {
-              if (day === null) {
+              if (day === null)
                 return (
                   <div key={`e-${idx}`} className="cal-cell cal-cell--empty" />
                 );
-              }
               const key = toDateKey(year, month, day);
               const rec = friendRecords[key];
               const isSelected = selectedDateKey === key;
-
               return (
                 <div
                   key={key}
@@ -1364,10 +1390,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                           <span className="pt-comment-time">
                             {new Date(comment.createdAt).toLocaleTimeString(
                               [],
-                              {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              },
+                              { hour: "2-digit", minute: "2-digit" },
                             )}
                           </span>
                         </div>
@@ -1434,9 +1457,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                 {isSearching ? <span className="pt-spinner" /> : "Найти"}
               </button>
             </form>
-
             {searchError && <div className="pt-auth-error">{searchError}</div>}
-
             {searchResult && (
               <div className="pt-search-result-card">
                 <div className="pt-friend-info">
@@ -1450,7 +1471,6 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                     )}
                   </div>
                 </div>
-
                 {friends.some((f) => f.uid === searchResult.uid) ? (
                   <span className="pt-friend-badge">Уже в друзьях</span>
                 ) : requestSent ? (
@@ -1479,7 +1499,6 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                 {friends.map((f) => {
                   const hasUnread = unreadFriendUids.includes(f.uid);
                   const hasPendingDuel = pendingDuelFriendUids.includes(f.uid);
-
                   return (
                     <div
                       key={f.uid}
@@ -1517,8 +1536,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                             setChatPartner(f);
                           }}
                         >
-                          💬
-                          {hasUnread && <span className="pt-unread-dot" />}
+                          💬{hasUnread && <span className="pt-unread-dot" />}
                         </button>
                         <span className="pt-profile-menu-arrow">›</span>
                       </div>
