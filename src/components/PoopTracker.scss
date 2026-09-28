@@ -3018,10 +3018,10 @@ body.chat-is-open {
   border: 2px dashed rgba(244, 114, 182, 0.5);
   border-radius: 16px;
   padding: 20px 16px;
-  
+
   margin-top: 0;
   margin-bottom: 8px;
-  
+
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3062,4 +3062,46 @@ body.chat-is-open {
 .pt-gift-item--featured {
   border: 2px solid #c026d3;
   background: #fdf2f8;
+}
+
+.pt-notification-block {
+  background: var(--pt-surface2);
+  border: 1px solid var(--pt-border);
+  border-radius: var(--pt-radius-sm);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pt-notification-desc {
+  font-size: 13px;
+  color: var(--pt-text-2);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.pt-notification-btn {
+  width: 100%;
+  transition: all 0.2s ease;
+
+  &--success {
+    background: #dcfce7 !important;
+    color: #15803d !important;
+    border: 1px solid #86efac !important;
+    opacity: 1 !important;
+    pointer-events: none;
+  }
+}
+
+.pt-notification-error {
+  background: #fef2f2;
+  border: 1px dashed #fca5a5;
+  color: #ef4444;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+  animation: fade-in 0.2s ease;
 }

@@ -294,8 +294,12 @@ export function ProfileTab({
     try {
       const permission = await Notification.requestPermission();
       if (permission === "granted") {
+        const swUrl = `${import.meta.env.BASE_URL}firebase-messaging-sw.js`;
+        const registration = await navigator.serviceWorker.register(swUrl);
+
         const currentToken = await getToken(messaging, {
           vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
+          serviceWorkerRegistration: registration,
         });
 
         if (currentToken) {
@@ -946,28 +950,28 @@ export function ProfileTab({
 
             <div className="pt-settings-section">
               <h4>Уведомления 🔔</h4>
-              <p className="pt-secret-desc">
-                Включи пуши, чтобы не пропустить вызовы на дуэль и новые
-                подарки.
-              </p>
-              <button
-                className="pt-btn pt-btn--primary pt-btn--compact"
-                onClick={requestNotificationPermission}
-                disabled={fcmSuccess}
-              >
-                {fcmSuccess ? "Включено" : "Включить уведомления"}
-              </button>
-              {fcmError && (
-                <div
-                  style={{
-                    color: "#ef4444",
-                    fontSize: "12px",
-                    marginTop: "8px",
-                  }}
+              <div className="pt-notification-block">
+                <p className="pt-notification-desc">
+                  Включи пуши, чтобы не пропустить вызовы на дуэль и новые
+                  подарки.
+                </p>
+                <button
+                  className={`pt-btn pt-btn--compact pt-notification-btn ${
+                    fcmSuccess
+                      ? "pt-notification-btn--success"
+                      : "pt-btn--primary"
+                  }`}
+                  onClick={requestNotificationPermission}
+                  disabled={fcmSuccess}
                 >
-                  {fcmError}
-                </div>
-              )}
+                  {fcmSuccess
+                    ? "✅ Уведомления включены"
+                    : "🔔 Включить уведомления"}
+                </button>
+                {fcmError && (
+                  <div className="pt-notification-error">{fcmError}</div>
+                )}
+              </div>
             </div>
 
             <div className="pt-settings-section">
