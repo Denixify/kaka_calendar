@@ -20,7 +20,7 @@ async function sendNotification(uid: string, title: string, body: string) {
       notification: { title, body },
       webpush: {
         fcmOptions: {
-          link: "/",
+          link: "/kaka_calendar/",
         },
       },
     });
@@ -61,7 +61,7 @@ export const onDuelCreated = onDocumentCreated(
     const duelData = event.data?.data();
     if (!duelData) return;
 
-    const { player1, player2 } = duelData; // player1 — инициатор дуэли
+    const { player1, player2 } = duelData;
 
     const senderSnap = await db.collection("users").doc(player1).get();
     const senderName = senderSnap.data()?.nickname || "Игрок";
@@ -152,7 +152,11 @@ export const dailyTrackerReminder = onSchedule(
               title: "💩 Время отметиться!",
               body: "День подходит к концу. Зафиксируй свой поход на трон, чтобы не потерять стрик!",
             },
-            webpush: { fcmOptions: { link: "/" } },
+            webpush: {
+              fcmOptions: {
+                link: "/kaka_calendar/",
+              },
+            },
           })
           .catch((e) => console.error("Ошибка cron-пуша:", e));
       }
