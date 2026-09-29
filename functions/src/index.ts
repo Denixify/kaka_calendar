@@ -36,13 +36,15 @@ export const onNewChatMessage = onDocumentCreated(
     const msgData = event.data?.data();
     if (!msgData) return;
 
-    const { senderId, text } = msgData;
+    const { senderUid, text } = msgData;
     const chatId = event.params.chatId;
 
-    const receiverId = chatId.replace(senderId, "").replace("_", "");
+    if (!senderUid) return;
+
+    const receiverId = chatId.replace(senderUid, "").replace("_", "");
     if (!receiverId) return;
 
-    const senderSnap = await db.collection("users").doc(senderId).get();
+    const senderSnap = await db.collection("users").doc(senderUid).get();
     const senderName = senderSnap.data()?.nickname || "Собеседник";
 
     await sendNotification(
