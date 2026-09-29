@@ -98,10 +98,12 @@ interface ChatMessage {
   gameScore?: number;
 }
 
+// Хелпер: приводит Timestamp | number | null к Date
 function toDate(val: Timestamp | number | null | undefined): Date {
   if (!val) return new Date();
   if (typeof val === "number") return new Date(val);
   if (val instanceof Timestamp) return val.toDate();
+  // Firestore может вернуть объект {seconds, nanoseconds} без прототипа
   if (typeof val === "object" && "seconds" in val) {
     return new Date((val as { seconds: number }).seconds * 1000);
   }
@@ -332,7 +334,44 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const chatNavRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  // Фикс iOS: при открытии клавиатуры layout viewport уезжает вверх.
+  // Компенсируем через top/left/width/height контейнера по visualViewport.
+  useEffect(() => {
+    if (!chatPartner) return;
+    const vv = window.visualViewport;
+    const container = chatContainerRef.current;
+    if (!vv || !container) return;
+
+    const fullHeight = vv.height; // высота без клавиатуры — запоминаем при маунте
+
+    const update = () => {
+      const isKeyboardOpen = vv.height < fullHeight * 0.75;
+      if (isKeyboardOpen) {
+        container.style.top = `${vv.offsetTop}px`;
+        container.style.left = `${vv.offsetLeft}px`;
+        container.style.width = `${vv.width}px`;
+        container.style.height = `${vv.height}px`;
+      } else {
+        // Клавиатура закрыта — убираем все inline стили
+        container.style.top = "";
+        container.style.left = "";
+        container.style.width = "";
+        container.style.height = "";
+      }
+    };
+
+    // Не вызываем update() сразу — ждём реального события resize
+    vv.addEventListener("resize", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      container.style.top = "";
+      container.style.left = "";
+      container.style.width = "";
+      container.style.height = "";
+    };
+  }, [chatPartner]);
 
   const [unreadFriendUids, setUnreadFriendUids] = useState<string[]>([]);
   const [pendingDuelFriendUids, setPendingDuelFriendUids] = useState<string[]>(
@@ -362,10 +401,12 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
   }, [currentUser.uid]);
 
   useEffect(() => {
+    // onSnapshot вместо getDocs — список обновляется в реальном времени
     const unsub = onSnapshot(
       collection(db, "users", currentUser.uid, "friends"),
       async (snap) => {
         try {
+          // Promise.all вместо последовательного for..of — параллельные запросы
           const profiles = await Promise.all(
             snap.docs.map(async (d) => {
               const uSnap = await getDoc(doc(db, "users", d.id));
@@ -507,6 +548,8 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
   }, [chatPartner, currentUser.uid]);
 
   useEffect(() => {
+    // instant при первой загрузке (messages только появились),
+    // smooth при новых сообщениях во время чата
     const behavior = messages.length <= 1 ? "instant" : "smooth";
     messagesEndRef.current?.scrollIntoView({ behavior });
   }, [messages]);
@@ -518,47 +561,6 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
       document.body.classList.remove("chat-is-open");
     }
     return () => document.body.classList.remove("chat-is-open");
-  }, [chatPartner]);
-
-  useEffect(() => {
-    if (!chatPartner) return;
-
-    const vv = window.visualViewport;
-    const container = chatNavRef.current?.closest<HTMLElement>(
-      ".pt-chat-fullscreen",
-    );
-    if (!vv || !container) return;
-
-    const scrollToBottom = () => {
-      requestAnimationFrame(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
-      });
-    };
-
-    const update = () => {
-      const top = vv.offsetTop;
-      const left = vv.offsetLeft;
-      const width = vv.width;
-      const height = vv.height;
-      container.style.top = `${top}px`;
-      container.style.left = `${left}px`;
-      container.style.width = `${width}px`;
-      container.style.height = `${height}px`;
-      scrollToBottom();
-    };
-
-    update();
-    vv.addEventListener("resize", update);
-    vv.addEventListener("scroll", update);
-
-    return () => {
-      vv.removeEventListener("resize", update);
-      vv.removeEventListener("scroll", update);
-      container.style.top = "";
-      container.style.left = "";
-      container.style.width = "";
-      container.style.height = "";
-    };
   }, [chatPartner]);
 
   const handleSearch = async (e: FormEvent) => {
@@ -921,8 +923,8 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
 
   if (chatPartner) {
     return (
-      <div className="pt-chat-fullscreen">
-        <div className="pt-chat-nav" ref={chatNavRef}>
+      <div className="pt-chat-fullscreen" ref={chatContainerRef}>
+        <div className="pt-chat-nav">
           <button className="pt-back-btn" onClick={() => setChatPartner(null)}>
             ← Назад
           </button>
@@ -1120,6 +1122,8 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
             onChange={(e) => setNewMessage(e.target.value)}
             className="pt-chat-input pt-chat-input--flex"
             onFocus={() => {
+              // iOS: клавиатура появляется с задержкой ~300ms после focus.
+              // Скроллим вниз дважды — сразу и после появления клавиатуры.
               requestAnimationFrame(() => {
                 messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
               });
