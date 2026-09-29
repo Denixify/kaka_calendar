@@ -5,6 +5,8 @@ import * as admin from "firebase-admin";
 admin.initializeApp();
 const db = admin.firestore();
 
+const APP_URL = "https://kaka-calendar-5fa7c.web.app/kaka_calendar/";
+
 async function sendNotification(uid: string, title: string, body: string) {
   try {
     const userSnap = await db.collection("users").doc(uid).get();
@@ -20,7 +22,7 @@ async function sendNotification(uid: string, title: string, body: string) {
       notification: { title, body },
       webpush: {
         fcmOptions: {
-          link: "/kaka_calendar/",
+          link: APP_URL,
         },
       },
     });
@@ -41,7 +43,8 @@ export const onNewChatMessage = onDocumentCreated(
 
     if (!senderUid) return;
 
-    const receiverId = chatId.replace(senderUid, "").replace("_", "");
+    const parts = chatId.split("_");
+    const receiverId = parts.find((id: string) => id !== senderUid);
     if (!receiverId) return;
 
     const senderSnap = await db.collection("users").doc(senderUid).get();
@@ -154,7 +157,7 @@ export const dailyTrackerReminder = onSchedule(
             },
             webpush: {
               fcmOptions: {
-                link: "/kaka_calendar/",
+                link: APP_URL,
               },
             },
           })

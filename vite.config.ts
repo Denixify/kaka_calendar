@@ -1,10 +1,12 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import basicSsl from "@vitejs/plugin-basic-ssl";
 
 export default defineConfig({
   base: "/kaka_calendar/",
   plugins: [
+    basicSsl(),
     react(),
     VitePWA({
       registerType: "autoUpdate",
@@ -19,6 +21,10 @@ export default defineConfig({
         orientation: "portrait",
         scope: "/kaka_calendar/",
         start_url: "/kaka_calendar/",
+      },
+      devOptions: {
+        enabled: true,
+        type: "module",
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],

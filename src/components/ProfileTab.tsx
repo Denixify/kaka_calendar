@@ -13,7 +13,7 @@ import {
   where,
   onSnapshot,
 } from "firebase/firestore";
-import { auth, db, messaging } from "../firebase";
+import { auth, db, messagingReady } from "../firebase";
 import { getToken } from "firebase/messaging";
 import type { Records } from "./PoopTracker";
 import {
@@ -111,6 +111,14 @@ export function ProfileTab({
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
   const [isDuelHistoryOpen, setIsDuelHistoryOpen] = useState(false);
 
+  const openModal = (setter: (v: boolean) => void) => {
+    setter(true);
+  };
+
+  const closeModal = (setter: (v: boolean) => void) => {
+    setter(false);
+  };
+
   const [requests, setRequests] = useState<FriendRequest[]>([]);
   const [duelHistory, setDuelHistory] = useState<FinishedDuel[]>([]);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
@@ -145,6 +153,7 @@ export function ProfileTab({
 
   const [fcmError, setFcmError] = useState<string | null>(null);
   const [fcmSuccess, setFcmSuccess] = useState(false);
+  const [fcmLoading, setFcmLoading] = useState(false);
 
   useEffect(() => {
     const handleOffline = () => setIsOffline(true);
@@ -157,41 +166,27 @@ export function ProfileTab({
     };
   }, []);
 
+
   useEffect(() => {
-    const isAnyModalOpen =
-      isSettingsOpen ||
-      isAchievModalOpen ||
-      isRequestsOpen ||
-      isAvatarModalOpen ||
-      isDuelHistoryOpen ||
-      activeGame !== null;
-
-    if (isAnyModalOpen) {
-      document.body.style.overflow = "hidden";
-      document.body.style.position = "fixed";
-      document.body.style.width = "100%";
-      document.body.classList.add("modal-is-open");
-    } else {
-      document.body.style.overflow = "";
-      document.body.style.position = "";
-      document.body.style.width = "";
-      document.body.classList.remove("modal-is-open");
-    }
-
-    return () => {
-      document.body.style.overflow = "";
-      document.body.style.position = "";
-      document.body.style.width = "";
-      document.body.classList.remove("modal-is-open");
-    };
-  }, [
-    isSettingsOpen,
-    isAchievModalOpen,
-    isRequestsOpen,
-    isAvatarModalOpen,
-    isDuelHistoryOpen,
-    activeGame,
-  ]);
+    let cancelled = false;
+    messagingReady.then(async (msg) => {
+      if (!msg || cancelled) return;
+      try {
+        const swUrl = `${import.meta.env.BASE_URL}firebase-messaging-sw.js`;
+        const registration = await navigator.serviceWorker.register(swUrl);
+        const token = await getToken(msg, {
+          vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
+          serviceWorkerRegistration: registration,
+        });
+        if (token && !cancelled) {
+          await updateDoc(doc(db, "users", currentUser.uid), { fcmToken: token });
+        }
+      } catch {
+        //
+      }
+    });
+    return () => { cancelled = true; };
+  }, [currentUser.uid]);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, "users", currentUser.uid), (docSnap) => {
@@ -284,20 +279,24 @@ export function ProfileTab({
   }, [currentUser.uid]);
 
   const requestNotificationPermission = async () => {
-    if (!messaging) {
-      setFcmError(
-        "Твой браузер, устройство или режим инкогнито не поддерживает уведомления.",
-      );
-      return;
-    }
+    setFcmLoading(true);
+    setFcmError(null);
 
     try {
+      const msg = await messagingReady;
+      if (!msg) {
+        setFcmError(
+          "Твой браузер, устройство или режим инкогнито не поддерживает уведомления.",
+        );
+        return;
+      }
+
       const permission = await Notification.requestPermission();
       if (permission === "granted") {
         const swUrl = `${import.meta.env.BASE_URL}firebase-messaging-sw.js`;
         const registration = await navigator.serviceWorker.register(swUrl);
 
-        const currentToken = await getToken(messaging, {
+        const currentToken = await getToken(msg, {
           vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
           serviceWorkerRegistration: registration,
         });
@@ -320,6 +319,8 @@ export function ProfileTab({
       setFcmError(
         "Ошибка настройки уведомлений. Проверь поддержку в браузере/устройстве.",
       );
+    } finally {
+      setFcmLoading(false);
     }
   };
 
@@ -535,7 +536,7 @@ export function ProfileTab({
       <div className="pt-card pt-profile-card">
         <div
           className="pt-avatar-badge-wrap"
-          onClick={() => setIsAvatarModalOpen(true)}
+          onClick={() => openModal(setIsAvatarModalOpen)}
         >
           <div className="pt-profile-avatar">{avatar}</div>
           <span className="pt-avatar-badge-edit">✏️</span>
@@ -727,7 +728,7 @@ export function ProfileTab({
         <div className="pt-profile-menu">
           <button
             className="pt-profile-menu-item"
-            onClick={() => setIsRequestsOpen(true)}
+            onClick={() => openModal(setIsRequestsOpen)}
           >
             <span className="pt-profile-menu-icon">🔔</span>
             <span className="pt-profile-menu-text">Заявки в друзья</span>
@@ -749,7 +750,7 @@ export function ProfileTab({
           </button>
           <button
             className="pt-profile-menu-item"
-            onClick={() => setIsAchievModalOpen(true)}
+            onClick={() => openModal(setIsAchievModalOpen)}
           >
             <span className="pt-profile-menu-icon">🏆</span>
             <span className="pt-profile-menu-text">Достижения</span>
@@ -759,7 +760,7 @@ export function ProfileTab({
           </button>
           <button
             className="pt-profile-menu-item"
-            onClick={() => setIsSettingsOpen(true)}
+            onClick={() => openModal(setIsSettingsOpen)}
           >
             <span className="pt-profile-menu-icon">⚙️</span>
             <span className="pt-profile-menu-text">Настройки</span>
@@ -797,7 +798,7 @@ export function ProfileTab({
       )}
 
       {isAvatarModalOpen && (
-        <div className="pt-overlay" onClick={() => setIsAvatarModalOpen(false)}>
+        <div className="pt-overlay" onClick={() => closeModal(setIsAvatarModalOpen)}>
           <div className="pt-modal" onClick={(e) => e.stopPropagation()}>
             <div className="pt-modal__handle" />
             <h3 className="pt-modal__title">Выбери аватарку</h3>
@@ -815,7 +816,7 @@ export function ProfileTab({
             <div className="pt-modal__actions">
               <button
                 className="pt-modal__close"
-                onClick={() => setIsAvatarModalOpen(false)}
+                onClick={() => closeModal(setIsAvatarModalOpen)}
               >
                 Закрыть
               </button>
@@ -825,7 +826,7 @@ export function ProfileTab({
       )}
 
       {isRequestsOpen && (
-        <div className="pt-overlay" onClick={() => setIsRequestsOpen(false)}>
+        <div className="pt-overlay" onClick={() => closeModal(setIsRequestsOpen)}>
           <div className="pt-modal" onClick={(e) => e.stopPropagation()}>
             <div className="pt-modal__handle" />
             <h3 className="pt-modal__title">Заявки в друзья</h3>
@@ -862,7 +863,7 @@ export function ProfileTab({
             <div className="pt-modal__actions">
               <button
                 className="pt-modal__close"
-                onClick={() => setIsRequestsOpen(false)}
+                onClick={() => closeModal(setIsRequestsOpen)}
               >
                 Закрыть
               </button>
@@ -872,7 +873,7 @@ export function ProfileTab({
       )}
 
       {isDuelHistoryOpen && (
-        <div className="pt-overlay" onClick={() => setIsDuelHistoryOpen(false)}>
+        <div className="pt-overlay" onClick={() => closeModal(setIsDuelHistoryOpen)}>
           <div
             className="pt-modal pt-modal--achievs"
             onClick={(e) => e.stopPropagation()}
@@ -933,7 +934,7 @@ export function ProfileTab({
             <div className="pt-modal__actions">
               <button
                 className="pt-modal__close"
-                onClick={() => setIsDuelHistoryOpen(false)}
+                onClick={() => closeModal(setIsDuelHistoryOpen)}
               >
                 Закрыть
               </button>
@@ -943,7 +944,7 @@ export function ProfileTab({
       )}
 
       {isSettingsOpen && (
-        <div className="pt-overlay" onClick={() => setIsSettingsOpen(false)}>
+        <div className="pt-overlay" onClick={() => closeModal(setIsSettingsOpen)}>
           <div className="pt-modal" onClick={(e) => e.stopPropagation()}>
             <div className="pt-modal__handle" />
             <h3 className="pt-modal__title">Настройки</h3>
@@ -962,11 +963,13 @@ export function ProfileTab({
                       : "pt-btn--primary"
                   }`}
                   onClick={requestNotificationPermission}
-                  disabled={fcmSuccess}
+                  disabled={fcmLoading}
                 >
-                  {fcmSuccess
-                    ? "✅ Уведомления включены"
-                    : "🔔 Включить уведомления"}
+                  {fcmLoading
+                    ? "⏳ Подключаю..."
+                    : fcmSuccess
+                      ? "✅ Уведомления активны (нажми для обновления)"
+                      : "🔔 Включить уведомления"}
                 </button>
                 {fcmError && (
                   <div className="pt-notification-error">{fcmError}</div>
@@ -1023,7 +1026,7 @@ export function ProfileTab({
             <div className="pt-modal__actions">
               <button
                 className="pt-modal__close"
-                onClick={() => setIsSettingsOpen(false)}
+                onClick={() => closeModal(setIsSettingsOpen)}
               >
                 Закрыть
               </button>
@@ -1033,7 +1036,7 @@ export function ProfileTab({
       )}
 
       {isAchievModalOpen && (
-        <div className="pt-overlay" onClick={() => setIsAchievModalOpen(false)}>
+        <div className="pt-overlay" onClick={() => closeModal(setIsAchievModalOpen)}>
           <div
             className="pt-modal pt-modal--achievs"
             onClick={(e) => e.stopPropagation()}
@@ -1092,7 +1095,7 @@ export function ProfileTab({
             <div className="pt-modal__actions">
               <button
                 className="pt-modal__close"
-                onClick={() => setIsAchievModalOpen(false)}
+                onClick={() => closeModal(setIsAchievModalOpen)}
               >
                 Закрыть
               </button>

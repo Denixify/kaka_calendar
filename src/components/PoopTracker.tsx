@@ -196,20 +196,24 @@ export const PoopTracker = forwardRef<PoopTrackerHandle, PoopTrackerProps>(
 
     useEffect(() => {
       if (selectedDate) {
-        document.body.style.overflow = "hidden";
+        const scrollY = window.scrollY;
         document.body.style.position = "fixed";
-        document.body.style.width = "100%";
+        document.body.style.top = `-${scrollY}px`;
+        document.body.style.left = "0";
+        document.body.style.right = "0";
         document.body.classList.add("modal-is-open");
+        return () => {
+          document.body.style.position = "";
+          document.body.style.top = "";
+          document.body.style.left = "";
+          document.body.style.right = "";
+          document.body.classList.remove("modal-is-open");
+          window.scrollTo(0, scrollY);
+        };
       } else {
-        document.body.style.overflow = "";
-        document.body.style.position = "";
-        document.body.style.width = "";
         document.body.classList.remove("modal-is-open");
       }
       return () => {
-        document.body.style.overflow = "";
-        document.body.style.position = "";
-        document.body.style.width = "";
         document.body.classList.remove("modal-is-open");
       };
     }, [selectedDate]);
@@ -637,10 +641,18 @@ export const PoopTracker = forwardRef<PoopTrackerHandle, PoopTrackerProps>(
                     <div className="pt-comment-top">
                       <strong>@{comment.authorNickname}</strong>
                       <span className="pt-comment-time">
-                        {new Date(comment.createdAt).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
+                        {comment.createdAt != null
+                          ? new Date(
+                              typeof comment.createdAt === "number"
+                                ? comment.createdAt
+                                : (
+                                    comment.createdAt as import("firebase/firestore").Timestamp
+                                  ).toMillis(),
+                            ).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          : ""}
                       </span>
                     </div>
                     <p>{comment.text}</p>

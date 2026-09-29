@@ -22,6 +22,8 @@ import {
   orderBy,
   where,
   increment,
+  serverTimestamp,
+  Timestamp,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { ACHIEVEMENTS_MAP, GIFTS_MAP } from "../constants/achievements";
@@ -79,14 +81,14 @@ export interface DayComment {
   authorNickname: string;
   authorAvatar: string;
   text: string;
-  createdAt: number;
+  createdAt: Timestamp | number | null;
 }
 
 interface ChatMessage {
   id: string;
   senderUid: string;
   text: string;
-  createdAt: number;
+  createdAt: Timestamp | number | null;
   read?: boolean;
   type?: "text" | "duel_invite" | "gift" | "game_challenge";
   duelId?: string;
@@ -94,6 +96,16 @@ interface ChatMessage {
   giftId?: string;
   gameType?: "flappy" | "doodle";
   gameScore?: number;
+}
+
+function toDate(val: Timestamp | number | null | undefined): Date {
+  if (!val) return new Date();
+  if (typeof val === "number") return new Date(val);
+  if (val instanceof Timestamp) return val.toDate();
+  if (typeof val === "object" && "seconds" in val) {
+    return new Date((val as { seconds: number }).seconds * 1000);
+  }
+  return new Date();
 }
 
 interface ReceivedGift {
@@ -320,6 +332,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatNavRef = useRef<HTMLDivElement>(null);
 
   const [unreadFriendUids, setUnreadFriendUids] = useState<string[]>([]);
   const [pendingDuelFriendUids, setPendingDuelFriendUids] = useState<string[]>(
@@ -349,44 +362,39 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
   }, [currentUser.uid]);
 
   useEffect(() => {
-    let isMounted = true;
-    async function fetchFriends() {
-      try {
-        const snap = await getDocs(
-          collection(db, "users", currentUser.uid, "friends"),
-        );
-        const list: FriendProfile[] = [];
-        for (const d of snap.docs) {
-          const uSnap = await getDoc(doc(db, "users", d.id));
-          if (uSnap.exists()) {
-            const uData = uSnap.data();
-            list.push({
-              uid: d.id,
-              nickname: uData.nickname,
-              avatar: uData.avatar || "👑",
-              bio: uData.bio,
-              featuredAchievementId: uData.featuredAchievementId || null,
-              featuredGiftId: uData.featuredGiftId || null,
-              flappyHighScore: uData.flappyHighScore || 0,
-              doodleHighScore: uData.doodleHighScore || 0,
-            });
-          }
-        }
-        if (isMounted) {
+    const unsub = onSnapshot(
+      collection(db, "users", currentUser.uid, "friends"),
+      async (snap) => {
+        try {
+          const profiles = await Promise.all(
+            snap.docs.map(async (d) => {
+              const uSnap = await getDoc(doc(db, "users", d.id));
+              if (!uSnap.exists()) return null;
+              const uData = uSnap.data();
+              return {
+                uid: d.id,
+                nickname: uData.nickname,
+                avatar: uData.avatar || "👑",
+                bio: uData.bio,
+                featuredAchievementId: uData.featuredAchievementId || null,
+                featuredGiftId: uData.featuredGiftId || null,
+                flappyHighScore: uData.flappyHighScore || 0,
+                doodleHighScore: uData.doodleHighScore || 0,
+              } as FriendProfile;
+            }),
+          );
+          const list = profiles.filter(Boolean) as FriendProfile[];
           setFriends(list);
           localStorage.setItem(
             `pt-friends-cache-${currentUser.uid}`,
             JSON.stringify(list),
           );
+        } catch (e) {
+          console.error("Ошибка загрузки друзей:", e);
         }
-      } catch (e) {
-        console.error("Ошибка загрузки друзей:", e);
-      }
-    }
-    fetchFriends();
-    return () => {
-      isMounted = false;
-    };
+      },
+    );
+    return () => unsub();
   }, [currentUser.uid]);
 
   useEffect(() => {
@@ -499,7 +507,8 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
   }, [chatPartner, currentUser.uid]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const behavior = messages.length <= 1 ? "instant" : "smooth";
+    messagesEndRef.current?.scrollIntoView({ behavior });
   }, [messages]);
 
   useEffect(() => {
@@ -509,6 +518,47 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
       document.body.classList.remove("chat-is-open");
     }
     return () => document.body.classList.remove("chat-is-open");
+  }, [chatPartner]);
+
+  useEffect(() => {
+    if (!chatPartner) return;
+
+    const vv = window.visualViewport;
+    const container = chatNavRef.current?.closest<HTMLElement>(
+      ".pt-chat-fullscreen",
+    );
+    if (!vv || !container) return;
+
+    const scrollToBottom = () => {
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+      });
+    };
+
+    const update = () => {
+      const top = vv.offsetTop;
+      const left = vv.offsetLeft;
+      const width = vv.width;
+      const height = vv.height;
+      container.style.top = `${top}px`;
+      container.style.left = `${left}px`;
+      container.style.width = `${width}px`;
+      container.style.height = `${height}px`;
+      scrollToBottom();
+    };
+
+    update();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+      container.style.top = "";
+      container.style.left = "";
+      container.style.width = "";
+      container.style.height = "";
+    };
   }, [chatPartner]);
 
   const handleSearch = async (e: FormEvent) => {
@@ -623,7 +673,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
         authorNickname: currentUser.displayName || "user",
         authorAvatar: currentUserAvatar,
         text: newCommentText.trim(),
-        createdAt: Date.now(),
+        createdAt: serverTimestamp(),
       });
       setNewCommentText("");
     } catch (e) {
@@ -662,7 +712,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
       await addDoc(msgRef, {
         senderUid: currentUser.uid,
         text: newMessage.trim(),
-        createdAt: Date.now(),
+        createdAt: serverTimestamp(),
         read: false,
       });
       setNewMessage("");
@@ -685,7 +735,6 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
 
       setIsGiftPickerOpen(false);
       const chatId = [currentUser.uid, chatPartner.uid].sort().join("_");
-      const timestamp = new Date().getTime();
 
       try {
         setBalance((prev) => prev - gift.price);
@@ -699,7 +748,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
           text: `Отправил(а) подарок!`,
           type: "gift",
           giftId: giftId,
-          createdAt: timestamp,
+          createdAt: serverTimestamp(),
           read: false,
         });
         await addDoc(
@@ -708,7 +757,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
             fromUid: currentUser.uid,
             fromNickname: currentUser.displayName || "user",
             giftId: giftId,
-            createdAt: timestamp,
+            createdAt: serverTimestamp(),
           },
         );
       } catch (e) {
@@ -748,14 +797,12 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
         );
         if (!isConfirmed) return;
 
-        const now = new Date().getTime();
-
         const duelRef = doc(collection(db, "duels"));
         await setDoc(duelRef, {
           player1: currentUser.uid,
           player2: friend.uid,
           status: "pending",
-          createdAt: now,
+          createdAt: serverTimestamp(),
           scores: {
             [currentUser.uid]: 0,
             [friend.uid]: 0,
@@ -768,7 +815,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
         await addDoc(msgRef, {
           senderUid: currentUser.uid,
           text: "Я вызываю тебя на дуэль!",
-          createdAt: now,
+          createdAt: serverTimestamp(),
           read: false,
           type: "duel_invite",
           duelId: duelRef.id,
@@ -804,7 +851,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
           type: "game_challenge",
           gameType: gameType,
           gameScore: score,
-          createdAt: Date.now(),
+          createdAt: serverTimestamp(),
           read: false,
         },
       );
@@ -875,7 +922,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
   if (chatPartner) {
     return (
       <div className="pt-chat-fullscreen">
-        <div className="pt-chat-nav">
+        <div className="pt-chat-nav" ref={chatNavRef}>
           <button className="pt-back-btn" onClick={() => setChatPartner(null)}>
             ← Назад
           </button>
@@ -893,13 +940,13 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
             messages.map((m, index) => {
               const isMe = m.senderUid === currentUser.uid;
 
-              const currentMsgDate = new Date(m.createdAt).toLocaleDateString(
+              const currentMsgDate = toDate(m.createdAt).toLocaleDateString(
                 [],
                 { day: "numeric", month: "long" },
               );
               const prevMsgDate =
                 index > 0
-                  ? new Date(messages[index - 1].createdAt).toLocaleDateString(
+                  ? toDate(messages[index - 1].createdAt).toLocaleDateString(
                       [],
                       { day: "numeric", month: "long" },
                     )
@@ -923,7 +970,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                           : "Тебе прислали подарок!"}
                       </p>
                       <span className="pt-chat-time pt-chat-time--right">
-                        {new Date(m.createdAt).toLocaleTimeString([], {
+                        {toDate(m.createdAt).toLocaleTimeString([], {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}
@@ -954,7 +1001,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                       Играть
                     </button>
                     <span className="pt-chat-time">
-                      {new Date(m.createdAt).toLocaleTimeString([], {
+                      {toDate(m.createdAt).toLocaleTimeString([], {
                         hour: "2-digit",
                         minute: "2-digit",
                       })}
@@ -1018,7 +1065,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                         </div>
                       )}
                       <span className="pt-chat-time">
-                        {new Date(m.createdAt).toLocaleTimeString([], {
+                        {toDate(m.createdAt).toLocaleTimeString([], {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}
@@ -1031,7 +1078,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                   <div className={`pt-chat-bubble ${isMe ? "me" : "them"}`}>
                     <span>{m.text}</span>
                     <span className="pt-chat-time">
-                      {new Date(m.createdAt).toLocaleTimeString([], {
+                      {toDate(m.createdAt).toLocaleTimeString([], {
                         hour: "2-digit",
                         minute: "2-digit",
                       })}
@@ -1072,6 +1119,14 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             className="pt-chat-input pt-chat-input--flex"
+            onFocus={() => {
+              requestAnimationFrame(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+              });
+              setTimeout(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+              }, 350);
+            }}
           />
           <button
             type="submit"
@@ -1388,10 +1443,10 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                         <div className="pt-comment-top">
                           <strong>@{comment.authorNickname}</strong>
                           <span className="pt-comment-time">
-                            {new Date(comment.createdAt).toLocaleTimeString(
-                              [],
-                              { hour: "2-digit", minute: "2-digit" },
-                            )}
+                            {toDate(comment.createdAt).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
                           </span>
                         </div>
                         <p>{comment.text}</p>

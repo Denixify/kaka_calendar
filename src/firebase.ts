@@ -26,17 +26,14 @@ export const db = initializeFirestore(app, {
 
 export const DOMAIN_SUFFIX = "@poopstagram.local";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export let messaging: any = null;
-
-isSupported()
-  .then((supported) => {
-    if (supported) {
-      messaging = getMessaging(app);
-    } else {
+export const messagingReady: Promise<ReturnType<typeof getMessaging> | null> =
+  isSupported()
+    .then((supported) => {
+      if (supported) return getMessaging(app);
       console.warn("Push-уведомления не поддерживаются в этом браузере.");
-    }
-  })
-  .catch((err) => {
-    console.warn("Ошибка проверки поддержки уведомлений:", err);
-  });
+      return null;
+    })
+    .catch((err) => {
+      console.warn("Ошибка проверки поддержки уведомлений:", err);
+      return null;
+    });

@@ -242,14 +242,40 @@ export default function App() {
     if (!currentUser) return;
 
     let isMounted = true;
-    getDoc(doc(db, "users", currentUser.uid))
-      .then((snap) => {
+
+    const localEmpty = Object.keys(records).length === 0;
+
+    Promise.all([
+      getDoc(doc(db, "users", currentUser.uid)),
+      getDoc(doc(db, "users", currentUser.uid, "tracker", "records")),
+    ])
+      .then(([userSnap, recordsSnap]) => {
         if (!isMounted) return;
-        if (snap.exists() && snap.data().unlockedAchievements) {
-          const ach = snap.data().unlockedAchievements as string[];
+
+        if (userSnap.exists() && userSnap.data().unlockedAchievements) {
+          const ach = userSnap.data().unlockedAchievements as string[];
           setUnlockedAchievements(ach);
           unlockedRef.current = ach;
           localStorage.setItem("pt-achievements", JSON.stringify(ach));
+        }
+
+        if (localEmpty && recordsSnap.exists()) {
+          const cloudRecords = recordsSnap.data() as Records;
+          Object.keys(cloudRecords).forEach((k) => {
+            const val = cloudRecords[k] as unknown;
+            if (typeof val === "string") {
+              cloudRecords[k] = {
+                status: val as Records[string]["status"],
+                count: "",
+                quality: null,
+              };
+            }
+          });
+          setRecords(cloudRecords);
+          localStorage.setItem(
+            "poop-tracker-data",
+            JSON.stringify(cloudRecords),
+          );
         }
       })
       .catch(() => {});
@@ -257,6 +283,7 @@ export default function App() {
     return () => {
       isMounted = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser]);
 
   useEffect(() => {
