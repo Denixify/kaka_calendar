@@ -15,15 +15,3 @@ firebase.initializeApp({
 });
 
 const messaging = firebase.messaging();
-
-messaging.onBackgroundMessage((payload) => {
-  console.log("[firebase-messaging-sw.js] Получено фоновое сообщение", payload);
-
-  const notificationTitle = payload.notification.title;
-  const notificationOptions = {
-    body: payload.notification.body,
-    icon: "/apple-touch-icon.png",
-  };
-
-  self.registration.showNotification(notificationTitle, notificationOptions);
-});
