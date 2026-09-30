@@ -98,12 +98,10 @@ interface ChatMessage {
   gameScore?: number;
 }
 
-// Хелпер: приводит Timestamp | number | null к Date
 function toDate(val: Timestamp | number | null | undefined): Date {
   if (!val) return new Date();
   if (typeof val === "number") return new Date(val);
   if (val instanceof Timestamp) return val.toDate();
-  // Firestore может вернуть объект {seconds, nanoseconds} без прототипа
   if (typeof val === "object" && "seconds" in val) {
     return new Date((val as { seconds: number }).seconds * 1000);
   }
@@ -336,15 +334,13 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
-  // Фикс iOS: при открытии клавиатуры layout viewport уезжает вверх.
-  // Компенсируем через top/left/width/height контейнера по visualViewport.
   useEffect(() => {
     if (!chatPartner) return;
     const vv = window.visualViewport;
     const container = chatContainerRef.current;
     if (!vv || !container) return;
 
-    const fullHeight = vv.height; // высота без клавиатуры — запоминаем при маунте
+    const fullHeight = vv.height;
 
     const update = () => {
       const isKeyboardOpen = vv.height < fullHeight * 0.75;
@@ -354,7 +350,6 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
         container.style.width = `${vv.width}px`;
         container.style.height = `${vv.height}px`;
       } else {
-        // Клавиатура закрыта — убираем все inline стили
         container.style.top = "";
         container.style.left = "";
         container.style.width = "";
@@ -362,7 +357,6 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
       }
     };
 
-    // Не вызываем update() сразу — ждём реального события resize
     vv.addEventListener("resize", update);
     return () => {
       vv.removeEventListener("resize", update);
@@ -401,12 +395,10 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
   }, [currentUser.uid]);
 
   useEffect(() => {
-    // onSnapshot вместо getDocs — список обновляется в реальном времени
     const unsub = onSnapshot(
       collection(db, "users", currentUser.uid, "friends"),
       async (snap) => {
         try {
-          // Promise.all вместо последовательного for..of — параллельные запросы
           const profiles = await Promise.all(
             snap.docs.map(async (d) => {
               const uSnap = await getDoc(doc(db, "users", d.id));
@@ -538,6 +530,25 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
         }
         return { id: d.id, ...data };
       });
+      list.sort((a, b) => {
+        const aMs =
+          a.createdAt == null
+            ? Infinity
+            : a.createdAt instanceof Timestamp
+              ? a.createdAt.toMillis()
+              : typeof a.createdAt === "number"
+                ? a.createdAt
+                : (a.createdAt as { seconds: number }).seconds * 1000;
+        const bMs =
+          b.createdAt == null
+            ? Infinity
+            : b.createdAt instanceof Timestamp
+              ? b.createdAt.toMillis()
+              : typeof b.createdAt === "number"
+                ? b.createdAt
+                : (b.createdAt as { seconds: number }).seconds * 1000;
+        return aMs - bMs;
+      });
       setMessages(list);
     });
 
@@ -548,8 +559,6 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
   }, [chatPartner, currentUser.uid]);
 
   useEffect(() => {
-    // instant при первой загрузке (messages только появились),
-    // smooth при новых сообщениях во время чата
     const behavior = messages.length <= 1 ? "instant" : "smooth";
     messagesEndRef.current?.scrollIntoView({ behavior });
   }, [messages]);
@@ -1122,8 +1131,6 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
             onChange={(e) => setNewMessage(e.target.value)}
             className="pt-chat-input pt-chat-input--flex"
             onFocus={() => {
-              // iOS: клавиатура появляется с задержкой ~300ms после focus.
-              // Скроллим вниз дважды — сразу и после появления клавиатуры.
               requestAnimationFrame(() => {
                 messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
               });

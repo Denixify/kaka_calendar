@@ -166,26 +166,31 @@ export function ProfileTab({
     };
   }, []);
 
-
   useEffect(() => {
     let cancelled = false;
     messagingReady.then(async (msg) => {
       if (!msg || cancelled) return;
       try {
         const swUrl = `${import.meta.env.BASE_URL}firebase-messaging-sw.js`;
-        const registration = await navigator.serviceWorker.register(swUrl);
+        const existing = await navigator.serviceWorker.getRegistration(swUrl);
+        const registration =
+          existing ?? (await navigator.serviceWorker.register(swUrl));
         const token = await getToken(msg, {
           vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
           serviceWorkerRegistration: registration,
         });
         if (token && !cancelled) {
-          await updateDoc(doc(db, "users", currentUser.uid), { fcmToken: token });
+          await updateDoc(doc(db, "users", currentUser.uid), {
+            fcmToken: token,
+          });
         }
       } catch {
         //
       }
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [currentUser.uid]);
 
   useEffect(() => {
@@ -294,7 +299,9 @@ export function ProfileTab({
       const permission = await Notification.requestPermission();
       if (permission === "granted") {
         const swUrl = `${import.meta.env.BASE_URL}firebase-messaging-sw.js`;
-        const registration = await navigator.serviceWorker.register(swUrl);
+        const existing = await navigator.serviceWorker.getRegistration(swUrl);
+        const registration =
+          existing ?? (await navigator.serviceWorker.register(swUrl));
 
         const currentToken = await getToken(msg, {
           vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
@@ -798,7 +805,10 @@ export function ProfileTab({
       )}
 
       {isAvatarModalOpen && (
-        <div className="pt-overlay" onClick={() => closeModal(setIsAvatarModalOpen)}>
+        <div
+          className="pt-overlay"
+          onClick={() => closeModal(setIsAvatarModalOpen)}
+        >
           <div className="pt-modal" onClick={(e) => e.stopPropagation()}>
             <div className="pt-modal__handle" />
             <h3 className="pt-modal__title">Выбери аватарку</h3>
@@ -826,7 +836,10 @@ export function ProfileTab({
       )}
 
       {isRequestsOpen && (
-        <div className="pt-overlay" onClick={() => closeModal(setIsRequestsOpen)}>
+        <div
+          className="pt-overlay"
+          onClick={() => closeModal(setIsRequestsOpen)}
+        >
           <div className="pt-modal" onClick={(e) => e.stopPropagation()}>
             <div className="pt-modal__handle" />
             <h3 className="pt-modal__title">Заявки в друзья</h3>
@@ -873,7 +886,10 @@ export function ProfileTab({
       )}
 
       {isDuelHistoryOpen && (
-        <div className="pt-overlay" onClick={() => closeModal(setIsDuelHistoryOpen)}>
+        <div
+          className="pt-overlay"
+          onClick={() => closeModal(setIsDuelHistoryOpen)}
+        >
           <div
             className="pt-modal pt-modal--achievs"
             onClick={(e) => e.stopPropagation()}
@@ -944,7 +960,10 @@ export function ProfileTab({
       )}
 
       {isSettingsOpen && (
-        <div className="pt-overlay" onClick={() => closeModal(setIsSettingsOpen)}>
+        <div
+          className="pt-overlay"
+          onClick={() => closeModal(setIsSettingsOpen)}
+        >
           <div className="pt-modal" onClick={(e) => e.stopPropagation()}>
             <div className="pt-modal__handle" />
             <h3 className="pt-modal__title">Настройки</h3>
@@ -1036,7 +1055,10 @@ export function ProfileTab({
       )}
 
       {isAchievModalOpen && (
-        <div className="pt-overlay" onClick={() => closeModal(setIsAchievModalOpen)}>
+        <div
+          className="pt-overlay"
+          onClick={() => closeModal(setIsAchievModalOpen)}
+        >
           <div
             className="pt-modal pt-modal--achievs"
             onClick={(e) => e.stopPropagation()}

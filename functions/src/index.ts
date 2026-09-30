@@ -5,7 +5,7 @@ import * as admin from "firebase-admin";
 admin.initializeApp();
 const db = admin.firestore();
 
-const APP_URL = "https://kaka-calendar-5fa7c.web.app/kaka_calendar/";
+const APP_URL = "https://denixify.github.io/kaka_calendar/";
 
 async function sendNotification(uid: string, title: string, body: string) {
   try {
