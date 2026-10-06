@@ -16,22 +16,19 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-messaging.onBackgroundMessage((payload) => {
-  console.log("[SW] Получено фоновое сообщение:", payload);
+const scopeUrl = (path) => new URL(path, self.registration.scope).href;
 
-  const title = payload.notification?.title || "Дневник 💩";
-  const body = payload.notification?.body || "";
-  const icon = "/kaka_calendar/pwa-192x192.png";
-  const badge = "/kaka_calendar/pwa-64x64.png";
-  const link =
-    payload.fcmOptions?.link ||
-    "https://kaka-calendar-5fa7c.web.app/kaka_calendar/";
+messaging.onBackgroundMessage((payload) => {
+  if (payload.notification) return;
+
+  const data = payload.data || {};
+  const title = data.title || "Дневник 💩";
 
   self.registration.showNotification(title, {
-    body,
-    icon,
-    badge,
-    data: { link },
+    body: data.body || "",
+    icon: scopeUrl("pwa-192x192.png"),
+    badge: scopeUrl("pwa-64x64.png"),
+    data: { link: data.link || self.registration.scope },
     vibrate: [200, 100, 200],
   });
 });
@@ -39,20 +36,17 @@ messaging.onBackgroundMessage((payload) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
-  const link =
-    event.notification.data?.link ||
-    "https://kaka-calendar-5fa7c.web.app/kaka_calendar/";
+  const link = event.notification.data?.link || self.registration.scope;
 
   event.waitUntil(
     clients
       .matchAll({ type: "window", includeUncontrolled: true })
       .then((clientList) => {
         for (const client of clientList) {
-          if (client.url.includes("/kaka_calendar/") && "focus" in client) {
+          if (client.url.startsWith(self.registration.scope) && "focus" in client) {
             return client.focus();
           }
         }
-        // Иначе открываем новую вкладку
         if (clients.openWindow) {
           return clients.openWindow(link);
         }
