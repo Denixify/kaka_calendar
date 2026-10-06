@@ -63,41 +63,26 @@ function readJson<T>(key: string): T | null {
   }
 }
 
+function purgeLegacyCache() {
+  safeRemove(LEGACY.records);
+  safeRemove(LEGACY.achievements);
+  safeRemove(LEGACY.lastRestore);
+}
+
 export function loadUserCache(uid: string): {
   records: Records;
   achievements: string[];
   lastRestore: number;
 } {
-  let records = readJson<unknown>(cacheKeys.records(uid));
-  if (records === null) {
-    records = readJson<unknown>(LEGACY.records);
-    if (records !== null) {
-      safeSet(cacheKeys.records(uid), JSON.stringify(records));
-      safeRemove(LEGACY.records);
-    }
-  }
+  purgeLegacyCache();
 
-  let achievements = readJson<string[]>(cacheKeys.achievements(uid));
-  if (achievements === null) {
-    achievements = readJson<string[]>(LEGACY.achievements);
-    if (achievements !== null) {
-      safeSet(cacheKeys.achievements(uid), JSON.stringify(achievements));
-      safeRemove(LEGACY.achievements);
-    }
-  }
-
-  let lastRestoreRaw = safeGet(cacheKeys.lastRestore(uid));
-  if (lastRestoreRaw === null) {
-    lastRestoreRaw = safeGet(LEGACY.lastRestore);
-    if (lastRestoreRaw !== null) {
-      safeSet(cacheKeys.lastRestore(uid), lastRestoreRaw);
-      safeRemove(LEGACY.lastRestore);
-    }
-  }
+  const records = readJson<unknown>(cacheKeys.records(uid));
+  const achievements = readJson<string[]>(cacheKeys.achievements(uid));
+  const lastRestore = Number(safeGet(cacheKeys.lastRestore(uid)) || 0) || 0;
 
   return {
     records: normalizeRecords(records),
     achievements: Array.isArray(achievements) ? achievements : [],
-    lastRestore: Number(lastRestoreRaw || 0) || 0,
+    lastRestore,
   };
 }

@@ -74,6 +74,9 @@ export default function App() {
     [],
   );
 
+  const [achievementsReady, setAchievementsReady] = useState(false);
+  const achievementsReadyRef = useRef(false);
+
   const recordsRef = useRef<Records>(records);
   const unlockedRef = useRef<string[]>(unlockedAchievements);
 
@@ -132,7 +135,7 @@ export default function App() {
 
   const handleUnlockAchievements = useCallback(
     (newUnlocks: string[]) => {
-      if (!uid) return;
+      if (!uid || !achievementsReadyRef.current) return;
 
       const currentList = unlockedRef.current;
       const uniqueNew = newUnlocks.filter((id) => !currentList.includes(id));
@@ -184,6 +187,8 @@ export default function App() {
     window.addEventListener("online", handleOnline);
 
     const unsubscribe = onAuthStateChanged(auth, (user) => {
+      achievementsReadyRef.current = false;
+      setAchievementsReady(false);
       if (user) {
         const cache = loadUserCache(user.uid);
         recordsRef.current = cache.records;
@@ -238,32 +243,32 @@ export default function App() {
     if (!uid) return;
     let isMounted = true;
 
+    const markReady = () => {
+      achievementsReadyRef.current = true;
+      setAchievementsReady(true);
+    };
+
     getDoc(doc(db, "users", uid))
       .then((snap) => {
-        if (!isMounted || !snap.exists()) return;
+        if (!isMounted) return;
         const data = snap.data();
 
-        const cloudAch = (data.unlockedAchievements as string[]) || [];
-        const merged = Array.from(
-          new Set([...cloudAch, ...unlockedRef.current]),
-        );
-        unlockedRef.current = merged;
-        setUnlockedAchievements(merged);
-        safeSet(cacheKeys.achievements(uid), JSON.stringify(merged));
-        if (merged.length !== cloudAch.length) {
-          setDoc(
-            doc(db, "users", uid),
-            { unlockedAchievements: merged },
-            { merge: true },
-          ).catch(() => {});
-        }
+        const cloudAch = Array.isArray(data?.unlockedAchievements)
+          ? (data.unlockedAchievements as string[])
+          : [];
+        unlockedRef.current = cloudAch;
+        setUnlockedAchievements(cloudAch);
+        safeSet(cacheKeys.achievements(uid), JSON.stringify(cloudAch));
 
-        const cloudRestore = Number(data.lastRestore || 0);
+        const cloudRestore = Number(data?.lastRestore || 0);
         if (cloudRestore > 0) {
           setLastRestore((prev) => Math.max(prev, cloudRestore));
         }
+        markReady();
       })
-      .catch(() => {});
+      .catch(() => {
+        if (isMounted) markReady();
+      });
 
     return () => {
       isMounted = false;
@@ -271,7 +276,7 @@ export default function App() {
   }, [uid]);
 
   useEffect(() => {
-    if (!uid) return;
+    if (!uid || !achievementsReady) return;
 
     let duels1: DuelDoc[] = [];
     let duels2: DuelDoc[] = [];
@@ -359,9 +364,10 @@ export default function App() {
       unsub1();
       unsub2();
     };
-  }, [uid, handleUnlockAchievements]);
+  }, [uid, achievementsReady, handleUnlockAchievements]);
 
   useEffect(() => {
+    if (!achievementsReady) return;
     const newlyUnlocked: string[] = [];
     const values = Object.values(records);
 
@@ -402,6 +408,7 @@ export default function App() {
     streakInfo,
     lastRestore,
     friendsCount,
+    achievementsReady,
     handleUnlockAchievements,
   ]);
 
