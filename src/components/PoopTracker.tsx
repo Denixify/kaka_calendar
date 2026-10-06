@@ -229,8 +229,7 @@ export function PoopTracker({
   };
 
   const playSound = () => {
-    const soundPref =
-      localStorage.getItem("pt-sound-pref") || "metalpipe.mp3";
+    const soundPref = localStorage.getItem("pt-sound-pref") || "metalpipe.mp3";
     if (soundPref === "none") return;
     const audio = new Audio(`${BASE}sounds/${soundPref}`);
     audio.play().catch(() => {});
@@ -278,7 +277,9 @@ export function PoopTracker({
 
   const handleAddComment = async (e: FormEvent) => {
     e.preventDefault();
-    if (!newCommentText.trim() || !detailKey) return;
+    const text = newCommentText.trim();
+    if (!text || !detailKey) return;
+    setNewCommentText("");
     try {
       const commentsRef = collection(
         db,
@@ -292,12 +293,13 @@ export function PoopTracker({
         authorUid: userId,
         authorNickname: auth.currentUser?.displayName || "user",
         authorAvatar: currentUserAvatar,
-        text: newCommentText.trim(),
+        text,
         createdAt: Date.now(),
       });
-      setNewCommentText("");
     } catch (e) {
       console.error("Ошибка отправки комментария:", e);
+      setNewCommentText((current) => current || text);
+      notify("Не удалось отправить комментарий", "error");
     }
   };
 
@@ -483,9 +485,7 @@ export function PoopTracker({
             className="pt-btn pt-btn--primary pt-btn--action"
             onClick={() => openModal(detailKey)}
           >
-            {detailRecord
-              ? "✏️ Отредактировать запись"
-              : "💩 Сходил покакать!"}
+            {detailRecord ? "✏️ Отредактировать запись" : "💩 Сходил покакать!"}
           </button>
 
           {detailRecord && (
@@ -505,9 +505,7 @@ export function PoopTracker({
           <div className="pt-comments-list">
             {comments.map((comment) => (
               <div key={comment.id} className="pt-comment-bubble">
-                <div className="pt-comment-avatar">
-                  {comment.authorAvatar}
-                </div>
+                <div className="pt-comment-avatar">{comment.authorAvatar}</div>
                 <div className="pt-comment-content">
                   <div className="pt-comment-top">
                     <strong>@{comment.authorNickname}</strong>

@@ -457,7 +457,9 @@ export function FriendsTab({
 
   const handleAddComment = async (e: FormEvent) => {
     e.preventDefault();
-    if (!newCommentText.trim() || !selectedFriend || !selectedDateKey) return;
+    const text = newCommentText.trim();
+    if (!text || !selectedFriend || !selectedDateKey) return;
+    setNewCommentText("");
     try {
       const commentsRef = collection(
         db,
@@ -471,12 +473,13 @@ export function FriendsTab({
         authorUid: currentUser.uid,
         authorNickname: currentUser.displayName || "user",
         authorAvatar: currentUserAvatar,
-        text: newCommentText.trim(),
+        text,
         createdAt: serverTimestamp(),
       });
-      setNewCommentText("");
     } catch (e) {
       console.error("Ошибка отправки комментария:", e);
+      setNewCommentText((current) => current || text);
+      notify("Не удалось отправить комментарий", "error");
     }
   };
 
@@ -502,21 +505,24 @@ export function FriendsTab({
 
   const handleSendMessage = async (e: FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !chatPartner) return;
+    const text = newMessage.trim();
+    if (!text || !chatPartner) return;
 
     const chatId = [currentUser.uid, chatPartner.uid].sort().join("_");
     const msgRef = collection(db, "chats", chatId, "messages");
 
+    setNewMessage("");
     try {
       await addDoc(msgRef, {
         senderUid: currentUser.uid,
-        text: newMessage.trim(),
+        text,
         createdAt: serverTimestamp(),
         read: false,
       });
-      setNewMessage("");
     } catch (e) {
       console.error("Ошибка отправки сообщения:", e);
+      setNewMessage((current) => current || text);
+      notify("Не удалось отправить сообщение", "error");
     }
   };
 
