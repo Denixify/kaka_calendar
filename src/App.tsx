@@ -2,29 +2,60 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import type { User } from "firebase/auth";
 import { onAuthStateChanged } from "firebase/auth";
 import {
+  deleteField,
   doc,
   getDoc,
-  setDoc,
-  collection,
   onSnapshot,
   query,
+  collection,
+  setDoc,
   where,
 } from "firebase/firestore";
 import { auth, db } from "./firebase";
-import {
-  PoopTracker,
-  type PoopTrackerHandle,
-  type Records,
-} from "./components/PoopTracker";
+import { PoopTracker, type Records } from "./components/PoopTracker";
 import { AuthScreen } from "./components/AuthScreen";
 import { ProfileTab } from "./components/ProfileTab";
 import { FriendsTab } from "./components/FriendsTab";
 import { BottomNavBar } from "./components/BottomNavBar";
+import { DialogHost } from "./components/DialogHost";
 import { ACHIEVEMENTS_MAP } from "./constants/achievements";
+import { useToday } from "./hooks/useToday";
+import { useChatBadges } from "./hooks/useChatBadges";
+import { computeStreak } from "./utils/streak";
+import { dateToKey, shiftDateKey } from "./utils/dates";
+import { claimDuelReward, finishExpiredDuel } from "./utils/duels";
+import { notify } from "./utils/dialogs";
+import {
+  cacheKeys,
+  loadUserCache,
+  normalizeRecords,
+  safeSet,
+} from "./utils/localCache";
 import "./components/PoopTracker.scss";
 
-function toDateKey(year: number, month: number, day: number): string {
-  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+interface DuelDoc {
+  id: string;
+  player1: string;
+  player2: string;
+  status: string;
+  endDate: number;
+  winnerId?: string | null;
+  scores?: Record<string, number>;
+  surrenderedBy?: string;
+  rewarded?: boolean;
+}
+
+function diffRecords(prev: Records, next: Records): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  for (const key of Object.keys(next)) {
+    if (JSON.stringify(prev[key]) !== JSON.stringify(next[key])) {
+      payload[key] = next[key];
+    }
+  }
+  for (const key of Object.keys(prev)) {
+    if (!(key in next)) payload[key] = deleteField();
+  }
+  return payload;
 }
 
 export default function App() {
@@ -33,144 +64,75 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"home" | "friends" | "profile">(
     "home",
   );
-  const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
-  const [hasPendingDuels, setHasPendingDuels] = useState(false);
-  const [friendsCount, setFriendsCount] = useState(0);
   const [networkToast, setNetworkToast] = useState<"offline" | "online" | null>(
     !navigator.onLine ? "offline" : null,
   );
 
-  const [records, setRecords] = useState<Records>(() => {
-    try {
-      const saved = localStorage.getItem("poop-tracker-data");
-      if (!saved) return {};
-      const parsed = JSON.parse(saved);
-      Object.keys(parsed).forEach((k) => {
-        if (typeof parsed[k] === "string") {
-          parsed[k] = { status: parsed[k], count: "", quality: null };
-        }
-      });
-      return parsed;
-    } catch {
-      return {};
-    }
-  });
-
-  const [lastRestore, setLastRestore] = useState<number>(() =>
-    Number(localStorage.getItem("pt-last-restore") || 0),
-  );
-
+  const [records, setRecords] = useState<Records>({});
+  const [lastRestore, setLastRestore] = useState<number>(0);
   const [unlockedAchievements, setUnlockedAchievements] = useState<string[]>(
-    () => {
-      try {
-        return JSON.parse(localStorage.getItem("pt-achievements") || "[]");
-      } catch {
-        return [];
-      }
-    },
+    [],
   );
 
-  const trackerRef = useRef<PoopTrackerHandle>(null);
-
+  const recordsRef = useRef<Records>(records);
   const unlockedRef = useRef<string[]>(unlockedAchievements);
 
-  useEffect(() => {
-    unlockedRef.current = unlockedAchievements;
-  }, [unlockedAchievements]);
+  const uid = currentUser?.uid ?? null;
+  const today = useToday();
+  const { friendsCount, unreadFriendUids, pendingDuelFriendUids } =
+    useChatBadges(uid);
 
-  const streakInfo = useMemo(() => {
-    const _now = new Date();
-    const _todayStr = toDateKey(
-      _now.getFullYear(),
-      _now.getMonth(),
-      _now.getDate(),
-    );
-    const _yestObj = new Date(_now);
-    _yestObj.setDate(_yestObj.getDate() - 1);
-    const _yestStr = toDateKey(
-      _yestObj.getFullYear(),
-      _yestObj.getMonth(),
-      _yestObj.getDate(),
-    );
+  const streakInfo = useMemo(
+    () => computeStreak(records, today),
+    [records, today],
+  );
 
-    const activeEntries = Object.entries(records)
-      .filter(([, data]) => data.status && data.status !== "cancel")
-      .sort((a, b) => b[0].localeCompare(a[0]));
-
-    const activeDates = activeEntries.map(([date]) => date);
-    const totalActive = activeDates.length;
-
-    if (totalActive === 0) return { streak: 0, isLost: false };
-
-    const hasToday = activeDates.includes(_todayStr);
-    const hasYesterday = activeDates.includes(_yestStr);
-
-    if (!hasToday && !hasYesterday && totalActive > 0) {
-      return { streak: 0, isLost: true };
-    }
-
-    let streak = 0;
-    let currentExpected = activeDates[0];
-
-    const getPrevDay = (d: string) => {
-      const obj = new Date(d);
-      obj.setDate(obj.getDate() - 1);
-      return toDateKey(obj.getFullYear(), obj.getMonth(), obj.getDate());
-    };
-
-    for (const date of activeDates) {
-      if (date === currentExpected) {
-        streak++;
-        currentExpected = getPrevDay(currentExpected);
-      } else {
-        break;
-      }
-    }
-
-    return { streak, isLost: false };
-  }, [records]);
+  const applyRecords = useCallback(
+    (next: Records) => {
+      recordsRef.current = next;
+      setRecords(next);
+      if (uid) safeSet(cacheKeys.records(uid), JSON.stringify(next));
+    },
+    [uid],
+  );
 
   const handleUpdateRecords = useCallback(
-    (newRecords: Records) => {
-      setRecords(newRecords);
-      localStorage.setItem("poop-tracker-data", JSON.stringify(newRecords));
-      if (currentUser && Object.keys(newRecords).length > 0) {
-        setDoc(
-          doc(db, "users", currentUser.uid, "tracker", "records"),
-          newRecords,
-          {
-            merge: true,
-          },
-        ).catch(() => {});
-      }
+    (nextRecords: Records) => {
+      const prev = recordsRef.current;
+      applyRecords(nextRecords);
+      if (!uid) return;
+
+      const payload = diffRecords(prev, nextRecords);
+      if (Object.keys(payload).length === 0) return;
+      setDoc(doc(db, "users", uid, "tracker", "records"), payload, {
+        merge: true,
+      }).catch((e) => console.error("Ошибка сохранения записей:", e));
     },
-    [currentUser],
+    [uid, applyRecords],
   );
 
   const handleRestoreStreak = () => {
-    const now = new Date();
-    const yest = new Date(now);
-    yest.setDate(yest.getDate() - 1);
-    const yesterdayKey = toDateKey(
-      yest.getFullYear(),
-      yest.getMonth(),
-      yest.getDate(),
-    );
+    if (!uid) return;
+    const yesterdayKey = shiftDateKey(dateToKey(new Date()), -1);
 
-    const updated = {
-      ...records,
-      [yesterdayKey]: { count: "", quality: null, status: "neutral" as const },
-    };
+    handleUpdateRecords({
+      ...recordsRef.current,
+      [yesterdayKey]: { count: "", quality: null, status: "neutral" },
+    });
 
     const restoreTime = Date.now();
     setLastRestore(restoreTime);
-    localStorage.setItem("pt-last-restore", restoreTime.toString());
-    handleUpdateRecords(updated);
+    safeSet(cacheKeys.lastRestore(uid), String(restoreTime));
+    setDoc(
+      doc(db, "users", uid),
+      { lastRestore: restoreTime },
+      { merge: true },
+    ).catch(() => {});
   };
 
   const handleUnlockAchievements = useCallback(
     (newUnlocks: string[]) => {
-      if (!currentUser) return;
+      if (!uid) return;
 
       const currentList = unlockedRef.current;
       const uniqueNew = newUnlocks.filter((id) => !currentList.includes(id));
@@ -179,11 +141,11 @@ export default function App() {
       const updated = [...currentList, ...uniqueNew];
       unlockedRef.current = updated;
 
-      localStorage.setItem("pt-achievements", JSON.stringify(updated));
+      safeSet(cacheKeys.achievements(uid), JSON.stringify(updated));
       setUnlockedAchievements(updated);
 
       setDoc(
-        doc(db, "users", currentUser.uid),
+        doc(db, "users", uid),
         { unlockedAchievements: updated },
         { merge: true },
       ).catch(() => {});
@@ -193,13 +155,9 @@ export default function App() {
         .filter(Boolean)
         .join(", ");
 
-      if (names) {
-        setTimeout(() => {
-          alert(`🏆 Открыты новые достижения:\n${names}`);
-        }, 300);
-      }
+      if (names) notify(`🏆 Новые достижения: ${names}`, "success");
     },
-    [currentUser],
+    [uid],
   );
 
   const handleTabChange = (tab: "home" | "friends" | "profile") => {
@@ -226,6 +184,20 @@ export default function App() {
     window.addEventListener("online", handleOnline);
 
     const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        const cache = loadUserCache(user.uid);
+        recordsRef.current = cache.records;
+        unlockedRef.current = cache.achievements;
+        setRecords(cache.records);
+        setUnlockedAchievements(cache.achievements);
+        setLastRestore(cache.lastRestore);
+      } else {
+        recordsRef.current = {};
+        unlockedRef.current = [];
+        setRecords({});
+        setUnlockedAchievements([]);
+        setLastRestore(0);
+      }
       setCurrentUser(user);
       setAuthChecked(true);
     });
@@ -239,43 +211,56 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!uid) return;
+    const ref = doc(db, "users", uid, "tracker", "records");
+    let migrated = false;
 
+    const unsubscribe = onSnapshot(
+      ref,
+      (snap) => {
+        if (snap.exists()) {
+          applyRecords(normalizeRecords(snap.data()));
+        } else if (!snap.metadata.fromCache && !migrated) {
+          migrated = true;
+          const local = recordsRef.current;
+          if (Object.keys(local).length > 0) {
+            setDoc(ref, local, { merge: true }).catch(() => {});
+          }
+        }
+      },
+      (e) => console.error("Ошибка подписки на записи:", e),
+    );
+
+    return () => unsubscribe();
+  }, [uid, applyRecords]);
+
+  useEffect(() => {
+    if (!uid) return;
     let isMounted = true;
 
-    const localEmpty = Object.keys(records).length === 0;
+    getDoc(doc(db, "users", uid))
+      .then((snap) => {
+        if (!isMounted || !snap.exists()) return;
+        const data = snap.data();
 
-    Promise.all([
-      getDoc(doc(db, "users", currentUser.uid)),
-      getDoc(doc(db, "users", currentUser.uid, "tracker", "records")),
-    ])
-      .then(([userSnap, recordsSnap]) => {
-        if (!isMounted) return;
-
-        if (userSnap.exists() && userSnap.data().unlockedAchievements) {
-          const ach = userSnap.data().unlockedAchievements as string[];
-          setUnlockedAchievements(ach);
-          unlockedRef.current = ach;
-          localStorage.setItem("pt-achievements", JSON.stringify(ach));
+        const cloudAch = (data.unlockedAchievements as string[]) || [];
+        const merged = Array.from(
+          new Set([...cloudAch, ...unlockedRef.current]),
+        );
+        unlockedRef.current = merged;
+        setUnlockedAchievements(merged);
+        safeSet(cacheKeys.achievements(uid), JSON.stringify(merged));
+        if (merged.length !== cloudAch.length) {
+          setDoc(
+            doc(db, "users", uid),
+            { unlockedAchievements: merged },
+            { merge: true },
+          ).catch(() => {});
         }
 
-        if (localEmpty && recordsSnap.exists()) {
-          const cloudRecords = recordsSnap.data() as Records;
-          Object.keys(cloudRecords).forEach((k) => {
-            const val = cloudRecords[k] as unknown;
-            if (typeof val === "string") {
-              cloudRecords[k] = {
-                status: val as Records[string]["status"],
-                count: "",
-                quality: null,
-              };
-            }
-          });
-          setRecords(cloudRecords);
-          localStorage.setItem(
-            "poop-tracker-data",
-            JSON.stringify(cloudRecords),
-          );
+        const cloudRestore = Number(data.lastRestore || 0);
+        if (cloudRestore > 0) {
+          setLastRestore((prev) => Math.max(prev, cloudRestore));
         }
       })
       .catch(() => {});
@@ -283,154 +268,106 @@ export default function App() {
     return () => {
       isMounted = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser]);
+  }, [uid]);
 
   useEffect(() => {
-    if (!currentUser) return;
-    const unsubscribe = onSnapshot(
-      collection(db, "users", currentUser.uid, "friends"),
-      (snap) => {
-        setFriendsCount(snap.size);
-      },
-    );
-    return () => unsubscribe();
-  }, [currentUser]);
+    if (!uid) return;
 
-  useEffect(() => {
-    if (!currentUser) return;
+    let duels1: DuelDoc[] = [];
+    let duels2: DuelDoc[] = [];
+    const handled = new Set<string>();
 
-    let msgUnsubs: (() => void)[] = [];
+    const process = () => {
+      const all = [...duels1, ...duels2];
+      const now = Date.now();
 
-    const unsubFriends = onSnapshot(
-      collection(db, "users", currentUser.uid, "friends"),
-      (friendsSnap) => {
-        msgUnsubs.forEach((fn) => fn());
-        msgUnsubs = [];
-
-        const friendIds = friendsSnap.docs.map((d) => d.id);
-        if (friendIds.length === 0) {
-          setHasUnreadMessages(false);
-          setHasPendingDuels(false);
-          return;
-        }
-
-        const unreadMsgMap: Record<string, boolean> = {};
-        const pendingDuelMap: Record<string, boolean> = {};
-
-        friendIds.forEach((fUid) => {
-          const chatId = [currentUser.uid, fUid].sort().join("_");
-          const msgRef = collection(db, "chats", chatId, "messages");
-          const q = query(msgRef, where("senderUid", "==", fUid));
-
-          const unsubMsg = onSnapshot(q, (snap) => {
-            unreadMsgMap[fUid] = snap.docs.some(
-              (d) => d.data().read === false && d.data().type !== "duel_invite",
-            );
-            pendingDuelMap[fUid] = snap.docs.some(
-              (d) =>
-                d.data().type === "duel_invite" &&
-                d.data().duelStatus === "pending",
-            );
-
-            setHasUnreadMessages(Object.values(unreadMsgMap).some(Boolean));
-            setHasPendingDuels(Object.values(pendingDuelMap).some(Boolean));
-          });
-
-          msgUnsubs.push(unsubMsg);
-        });
-      },
-    );
-
-    return () => {
-      unsubFriends();
-      msgUnsubs.forEach((fn) => fn());
-      setHasUnreadMessages(false);
-      setHasPendingDuels(false);
-    };
-  }, [currentUser]);
-
-  useEffect(() => {
-    if (!currentUser) return;
-
-    const q1 = query(
-      collection(db, "duels"),
-      where("player1", "==", currentUser.uid),
-      where("status", "==", "finished"),
-    );
-    const q2 = query(
-      collection(db, "duels"),
-      where("player2", "==", currentUser.uid),
-      where("status", "==", "finished"),
-    );
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let duels1: any[] = [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let duels2: any[] = [];
-
-    const checkDuelAchievs = () => {
-      const allDuels = [...duels1, ...duels2];
-      if (allDuels.length === 0) return;
-
-      const newlyUnlocked: string[] = [];
       let winsCount = 0;
       let hasFlawless = false;
       let hasPacifist = false;
       let hasSurrender = false;
 
-      allDuels.forEach((duel) => {
-        const isWinner = duel.winnerId === currentUser.uid;
-        const isDraw = !duel.winnerId;
-        const myScore = duel.scores?.[currentUser.uid] || 0;
-        const partnerUid =
-          duel.player1 === currentUser.uid ? duel.player2 : duel.player1;
+      for (const duel of all) {
+        if (duel.status === "active" && now >= duel.endDate) {
+          if (!handled.has(`finish:${duel.id}`)) {
+            handled.add(`finish:${duel.id}`);
+            finishExpiredDuel(duel.id);
+          }
+          continue;
+        }
+        if (duel.status !== "finished") continue;
+
+        if (
+          duel.winnerId === uid &&
+          duel.rewarded === false &&
+          !handled.has(`claim:${duel.id}`)
+        ) {
+          handled.add(`claim:${duel.id}`);
+          claimDuelReward(duel.id, uid);
+        }
+
+        const isWinner = duel.winnerId === uid;
+        const partnerUid = duel.player1 === uid ? duel.player2 : duel.player1;
+        const myScore = duel.scores?.[uid] || 0;
         const partnerScore = duel.scores?.[partnerUid] || 0;
-        const iSurrendered = duel.surrenderedBy === currentUser.uid;
 
         if (isWinner) winsCount++;
         if (isWinner && myScore - partnerScore >= 10) hasFlawless = true;
-        if (isDraw) hasPacifist = true;
-        if (iSurrendered) hasSurrender = true;
-      });
+        if (!duel.winnerId) hasPacifist = true;
+        if (duel.surrenderedBy === uid) hasSurrender = true;
+      }
 
+      const newlyUnlocked: string[] = [];
       if (winsCount >= 1) newlyUnlocked.push("duel_first_blood");
       if (winsCount >= 5) newlyUnlocked.push("duel_gladiator");
       if (hasFlawless) newlyUnlocked.push("duel_flawless");
       if (hasPacifist) newlyUnlocked.push("duel_pacifist");
       if (hasSurrender) newlyUnlocked.push("duel_surrender");
-
-      if (newlyUnlocked.length > 0) {
-        handleUnlockAchievements(newlyUnlocked);
-      }
+      if (newlyUnlocked.length > 0) handleUnlockAchievements(newlyUnlocked);
     };
 
-    const unsub1 = onSnapshot(q1, (snap) => {
-      duels1 = snap.docs.map((d) => d.data());
-      checkDuelAchievs();
-    });
-    const unsub2 = onSnapshot(q2, (snap) => {
-      duels2 = snap.docs.map((d) => d.data());
-      checkDuelAchievs();
-    });
+    const toDocs = (snap: { docs: { id: string; data: () => unknown }[] }) =>
+      snap.docs.map((d) => ({ id: d.id, ...(d.data() as object) }) as DuelDoc);
+
+    const statuses = ["active", "finished"];
+    const unsub1 = onSnapshot(
+      query(
+        collection(db, "duels"),
+        where("player1", "==", uid),
+        where("status", "in", statuses),
+      ),
+      (snap) => {
+        duels1 = toDocs(snap);
+        process();
+      },
+    );
+    const unsub2 = onSnapshot(
+      query(
+        collection(db, "duels"),
+        where("player2", "==", uid),
+        where("status", "in", statuses),
+      ),
+      (snap) => {
+        duels2 = toDocs(snap);
+        process();
+      },
+    );
+
+    const timer = setInterval(process, 60000);
 
     return () => {
+      clearInterval(timer);
       unsub1();
       unsub2();
     };
-  }, [currentUser, handleUnlockAchievements]);
+  }, [uid, handleUnlockAchievements]);
 
   useEffect(() => {
     const newlyUnlocked: string[] = [];
     const values = Object.values(records);
 
-    if (streakInfo.streak >= 1) newlyUnlocked.push("streak_1");
-    if (streakInfo.streak >= 2) newlyUnlocked.push("streak_2");
-    if (streakInfo.streak >= 3) newlyUnlocked.push("streak_3");
-    if (streakInfo.streak >= 4) newlyUnlocked.push("streak_4");
-    if (streakInfo.streak >= 5) newlyUnlocked.push("streak_5");
-    if (streakInfo.streak >= 6) newlyUnlocked.push("streak_6");
-    if (streakInfo.streak >= 7) newlyUnlocked.push("streak_7");
+    for (let n = 1; n <= 7; n++) {
+      if (streakInfo.streak >= n) newlyUnlocked.push(`streak_${n}`);
+    }
 
     if (streakInfo.isLost) newlyUnlocked.push("lost_streak");
     if (lastRestore > 0) newlyUnlocked.push("magic_restore");
@@ -453,16 +390,12 @@ export default function App() {
     if (values.some((r) => r.status === "neutral"))
       newlyUnlocked.push("not_great_not_terrible");
 
-    if (friendsCount >= 1) newlyUnlocked.push("friend_1");
-    if (friendsCount >= 2) newlyUnlocked.push("friend_2");
-    if (friendsCount >= 3) newlyUnlocked.push("friend_3");
-    if (friendsCount >= 4) newlyUnlocked.push("friend_4");
-    if (friendsCount >= 5) newlyUnlocked.push("friend_5");
+    for (let n = 1; n <= 5; n++) {
+      if (friendsCount >= n) newlyUnlocked.push(`friend_${n}`);
+    }
 
     if (newlyUnlocked.length > 0) {
-      queueMicrotask(() => {
-        handleUnlockAchievements(newlyUnlocked);
-      });
+      queueMicrotask(() => handleUnlockAchievements(newlyUnlocked));
     }
   }, [
     records,
@@ -471,6 +404,17 @@ export default function App() {
     friendsCount,
     handleUnlockAchievements,
   ]);
+
+  const networkToastView = networkToast && (
+    <div
+      className={`pt-toast pt-toast--${networkToast}`}
+      onClick={() => setNetworkToast(null)}
+    >
+      {networkToast === "offline"
+        ? "⚠️ Нет сети. Данные сохраняются локально."
+        : "✅ Сеть восстановлена!"}
+    </div>
+  );
 
   if (!authChecked) {
     return (
@@ -484,16 +428,8 @@ export default function App() {
     return (
       <>
         <AuthScreen onSuccess={() => {}} />
-        {networkToast && (
-          <div
-            className={`pt-toast pt-toast--${networkToast}`}
-            onClick={() => setNetworkToast(null)}
-          >
-            {networkToast === "offline"
-              ? "⚠️ Нет сети. Данные сохраняются локально."
-              : "✅ Сеть восстановлена!"}
-          </div>
-        )}
+        {networkToastView}
+        <DialogHost />
       </>
     );
   }
@@ -503,14 +439,19 @@ export default function App() {
       <main className="pt-main-view">
         {activeTab === "home" && (
           <PoopTracker
-            ref={trackerRef}
             userId={currentUser.uid}
             records={records}
             onUpdateRecords={handleUpdateRecords}
           />
         )}
 
-        {activeTab === "friends" && <FriendsTab currentUser={currentUser} />}
+        {activeTab === "friends" && (
+          <FriendsTab
+            currentUser={currentUser}
+            unreadFriendUids={unreadFriendUids}
+            pendingDuelFriendUids={pendingDuelFriendUids}
+          />
+        )}
 
         {activeTab === "profile" && (
           <ProfileTab
@@ -526,17 +467,12 @@ export default function App() {
       <BottomNavBar
         activeTab={activeTab}
         onChangeTab={handleTabChange}
-        hasUnreadMessages={hasUnreadMessages}
-        hasPendingDuels={hasPendingDuels}
+        hasUnreadMessages={unreadFriendUids.length > 0}
+        hasPendingDuels={pendingDuelFriendUids.length > 0}
       />
 
-      {networkToast && (
-        <div className={`pt-toast pt-toast--${networkToast}`}>
-          {networkToast === "offline"
-            ? "⚠️ Нет сети. Данные сохраняются локально."
-            : "✅ Сеть восстановлена! Синхронизация завершена."}
-        </div>
-      )}
+      {networkToastView}
+      <DialogHost />
     </div>
   );
 }

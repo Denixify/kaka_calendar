@@ -14,7 +14,10 @@ import {
   onSnapshot,
 } from "firebase/firestore";
 import { auth, db, messagingReady } from "../firebase";
-import { getToken } from "firebase/messaging";
+import { registerPushToken } from "../utils/push";
+import { notify } from "../utils/dialogs";
+import { computeStreak } from "../utils/streak";
+import { useToday } from "../hooks/useToday";
 import type { Records } from "./PoopTracker";
 import {
   ACHIEVEMENTS,
@@ -23,10 +26,6 @@ import {
 } from "../constants/achievements";
 import { FlappyPoop } from "./games/FlappyPoop";
 import { DoodleTurd } from "./games/DoodleTurd";
-
-function toDateKey(year: number, month: number, day: number): string {
-  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-}
 
 const SOUNDS = [
   { id: "none", label: "Без звука 🔕" },
@@ -168,24 +167,15 @@ export function ProfileTab({
 
   useEffect(() => {
     let cancelled = false;
+    if (!("Notification" in window) || Notification.permission !== "granted") {
+      return;
+    }
     messagingReady.then(async (msg) => {
       if (!msg || cancelled) return;
       try {
-        const swUrl = `${import.meta.env.BASE_URL}firebase-messaging-sw.js`;
-        const existing = await navigator.serviceWorker.getRegistration(swUrl);
-        const registration =
-          existing ?? (await navigator.serviceWorker.register(swUrl));
-        const token = await getToken(msg, {
-          vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
-          serviceWorkerRegistration: registration,
-        });
-        if (token && !cancelled) {
-          await updateDoc(doc(db, "users", currentUser.uid), {
-            fcmToken: token,
-          });
-        }
-      } catch {
-        //
+        await registerPushToken(msg, currentUser.uid);
+      } catch (e) {
+        console.warn("Не удалось обновить токен уведомлений:", e);
       }
     });
     return () => {
@@ -298,23 +288,11 @@ export function ProfileTab({
 
       const permission = await Notification.requestPermission();
       if (permission === "granted") {
-        const swUrl = `${import.meta.env.BASE_URL}firebase-messaging-sw.js`;
-        const existing = await navigator.serviceWorker.getRegistration(swUrl);
-        const registration =
-          existing ?? (await navigator.serviceWorker.register(swUrl));
-
-        const currentToken = await getToken(msg, {
-          vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
-          serviceWorkerRegistration: registration,
-        });
-
-        if (currentToken) {
-          await updateDoc(doc(db, "users", currentUser.uid), {
-            fcmToken: currentToken,
-          });
+        const registered = await registerPushToken(msg, currentUser.uid);
+        if (registered) {
           setFcmSuccess(true);
           setFcmError(null);
-          alert("Уведомления успешно включены! 🔔");
+          notify("Уведомления успешно включены! 🔔", "success");
         } else {
           setFcmError("Не удалось получить токен устройства.");
         }
@@ -486,52 +464,11 @@ export function ProfileTab({
     audio.play().catch(() => {});
   };
 
-  const streakInfo = useMemo(() => {
-    const _now = new Date();
-    const _todayStr = toDateKey(
-      _now.getFullYear(),
-      _now.getMonth(),
-      _now.getDate(),
-    );
-    const _yestObj = new Date(_now);
-    _yestObj.setDate(_yestObj.getDate() - 1);
-    const _yestStr = toDateKey(
-      _yestObj.getFullYear(),
-      _yestObj.getMonth(),
-      _yestObj.getDate(),
-    );
-    const activeEntries = Object.entries(records)
-      .filter(([, data]) => data.status && data.status !== "cancel")
-      .sort((a, b) => b[0].localeCompare(a[0]));
-    const activeDates = activeEntries.map(([date]) => date);
-    const totalActive = activeDates.length;
-
-    if (totalActive === 0)
-      return { streak: 0, isLost: false, isBeginner: true };
-    const hasToday = activeDates.includes(_todayStr);
-    const hasYesterday = activeDates.includes(_yestStr);
-    const isBeginner = totalActive < 2 && !hasYesterday;
-
-    if (!hasToday && !hasYesterday && totalActive > 0)
-      return { streak: 0, isLost: true, isBeginner: false };
-
-    let streak = 0;
-    let currentExpected = activeDates[0];
-    const getPrevDay = (d: string) => {
-      const obj = new Date(d);
-      obj.setDate(obj.getDate() - 1);
-      return toDateKey(obj.getFullYear(), obj.getMonth(), obj.getDate());
-    };
-    for (const date of activeDates) {
-      if (date === currentExpected) {
-        streak++;
-        currentExpected = getPrevDay(currentExpected);
-      } else {
-        break;
-      }
-    }
-    return { streak, isLost: false, isBeginner };
-  }, [records]);
+  const today = useToday();
+  const streakInfo = useMemo(
+    () => computeStreak(records, today),
+    [records, today],
+  );
 
   const cooldownDaysLeft = Math.ceil(
     (7 * 24 * 60 * 60 * 1000 - (nowTime - lastRestore)) / (1000 * 60 * 60 * 24),

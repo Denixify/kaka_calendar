@@ -1,0 +1,154 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function myNickname() {
+      return request.auth.token.email.split('@')[0];
+    }
+
+    function hasFriend(uid, other) {
+      return exists(/databases/$(database)/documents/users/$(uid)/friends/$(other));
+    }
+
+    function canSeeDiary(uid) {
+      return isOwner(uid) || (signedIn() && hasFriend(uid, request.auth.uid));
+    }
+
+    function inChat(chatId) {
+      return signedIn() && request.auth.uid in chatId.split('_');
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn();
+
+      allow create: if isOwner(uid)
+        && request.resource.data.nickname == myNickname()
+        && request.resource.data.get('balance', 0) == 0;
+
+      allow update: if isOwner(uid)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['nickname', 'createdAt'])
+        && request.resource.data.get('balance', 0) is number
+        && request.resource.data.get('balance', 0) >= 0
+        && request.resource.data.get('balance', 0) - resource.data.get('balance', 0) <= 10
+        && request.resource.data.get('duelWins', 0) is number
+        && request.resource.data.get('duelWins', 0) - resource.data.get('duelWins', 0) <= 1;
+
+      match /tracker/{docId} {
+        allow read: if canSeeDiary(uid);
+        allow write: if isOwner(uid);
+      }
+
+      match /tracker_comments/{day}/comments/{commentId} {
+        allow read: if canSeeDiary(uid);
+        allow create: if canSeeDiary(uid)
+          && request.resource.data.authorUid == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() <= 500;
+        allow delete: if isOwner(uid)
+          || (signedIn() && resource.data.authorUid == request.auth.uid);
+      }
+
+      match /friend_requests/{requesterUid} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(requesterUid)
+          && uid != requesterUid
+          && request.resource.data.fromUid == request.auth.uid;
+      }
+
+      match /friends/{friendUid} {
+        allow read: if isOwner(uid);
+        allow create: if signedIn()
+          && (request.auth.uid == uid || request.auth.uid == friendUid)
+          && exists(/databases/$(database)/documents/users/$(request.auth.uid)/friend_requests/$(request.auth.uid == uid ? friendUid : uid));
+        allow delete: if signedIn()
+          && (request.auth.uid == uid || request.auth.uid == friendUid);
+      }
+
+      match /gifts_received/{giftId} {
+        allow read: if canSeeDiary(uid);
+        allow create: if signedIn()
+          && request.resource.data.fromUid == request.auth.uid
+          && hasFriend(uid, request.auth.uid);
+      }
+    }
+
+    match /usernames/{name} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && name == myNickname()
+        && request.resource.data.uid == request.auth.uid;
+    }
+
+    match /chats/{chatId}/messages/{messageId} {
+      allow read: if inChat(chatId);
+      allow create: if inChat(chatId)
+        && request.resource.data.senderUid == request.auth.uid;
+      allow update: if inChat(chatId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read', 'duelStatus']);
+    }
+
+    match /duels/{duelId} {
+      function isPlayer(d) {
+        return signedIn() && (request.auth.uid == d.player1 || request.auth.uid == d.player2);
+      }
+
+      function scoreWinner(d) {
+        return d.scores[d.player1] > d.scores[d.player2]
+          ? d.player1
+          : (d.scores[d.player2] > d.scores[d.player1] ? d.player2 : null);
+      }
+
+      function validStatusChange(old, nw) {
+        return (old.status == 'pending'
+                && request.auth.uid == old.player2
+                && nw.status in ['active', 'declined'])
+          || (old.status == 'active'
+                && nw.status == 'finished'
+                && ((request.time.toMillis() >= old.endDate
+                      && nw.get('winnerId', null) == scoreWinner(old))
+                    || (nw.get('surrenderedBy', null) == request.auth.uid
+                      && nw.get('winnerId', null) in [old.player1, old.player2]
+                      && nw.get('winnerId', null) != request.auth.uid)));
+      }
+
+      function validDuelUpdate(old, nw) {
+        let changed = nw.diff(old).affectedKeys();
+        return changed.hasOnly(['status', 'startDate', 'endDate', 'scores', 'winnerId', 'surrenderedBy', 'rewarded'])
+          && (!changed.hasAny(['scores'])
+              || (old.status == 'active'
+                  && nw.scores.diff(old.scores).affectedKeys().hasOnly([request.auth.uid])))
+          && (!changed.hasAny(['status', 'winnerId', 'surrenderedBy', 'startDate', 'endDate'])
+              || (changed.hasAny(['status']) && validStatusChange(old, nw)))
+          && (!changed.hasAny(['startDate', 'endDate'])
+              || (old.status == 'pending' && nw.endDate - nw.startDate == 604800000))
+          && (!changed.hasAny(['rewarded'])
+              || (old.status == 'active' && nw.status == 'finished' && nw.rewarded == false)
+              || (old.status == 'finished'
+                  && old.get('rewarded', null) == false
+                  && nw.rewarded == true
+                  && old.winnerId == request.auth.uid));
+      }
+
+      allow read: if isPlayer(resource.data);
+
+      allow create: if signedIn()
+        && request.resource.data.player1 == request.auth.uid
+        && request.resource.data.player2 != request.auth.uid
+        && request.resource.data.status == 'pending'
+        && hasFriend(request.auth.uid, request.resource.data.player2)
+        && !('rewarded' in request.resource.data);
+
+      allow update: if isPlayer(resource.data)
+        && validDuelUpdate(resource.data, request.resource.data);
+    }
+  }
+}

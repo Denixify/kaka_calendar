@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { doc, updateDoc, increment } from "firebase/firestore";
 import { db } from "../../firebase";
+import { claimDailyReward } from "../../utils/economy";
 
 const GRAVITY = 0.5;
 const JUMP = -8;
@@ -54,9 +55,7 @@ export function FlappyPoop({
   }, [highScore, onRecordBreak, userId]);
 
   useEffect(() => {
-    updateDoc(doc(db, "users", userId), {
-      balance: increment(1),
-    }).catch(console.error);
+    claimDailyReward(userId, "lastGameReward", 1);
   }, [userId]);
 
   useEffect(() => {

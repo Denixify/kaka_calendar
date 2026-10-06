@@ -21,18 +21,17 @@ import {
   query,
   orderBy,
   where,
-  increment,
   serverTimestamp,
   Timestamp,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { ACHIEVEMENTS_MAP, GIFTS_MAP } from "../constants/achievements";
+import { DuelCard } from "./DuelCard";
+import { InsufficientFundsError, sendGift } from "../utils/economy";
+import { askConfirm, notify } from "../utils/dialogs";
+import { toDateKey } from "../utils/dates";
 import { FlappyPoop } from "./games/FlappyPoop";
 import { DoodleTurd } from "./games/DoodleTurd";
-
-function toDateKey(year: number, month: number, day: number): string {
-  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-}
 
 const MONTHS = [
   "Январь",
@@ -118,181 +117,15 @@ interface ReceivedGift {
 
 interface FriendsTabProps {
   currentUser: User;
+  unreadFriendUids: string[];
+  pendingDuelFriendUids: string[];
 }
 
-interface ActiveDuelCardProps {
-  duelId: string;
-  currentUserId: string;
-  partnerNickname: string;
-}
-
-interface DuelData {
-  player1: string;
-  player2: string;
-  status: "pending" | "active" | "declined" | "finished";
-  startDate: number;
-  endDate: number;
-  scores?: Record<string, number>;
-  winnerId?: string | null;
-  surrenderedBy?: string;
-}
-
-function DuelCardView({
-  duelId,
-  currentUserId,
-  partnerNickname,
-}: ActiveDuelCardProps) {
-  const [duel, setDuel] = useState<DuelData | null>(null);
-  const [now, setNow] = useState(() => new Date().getTime());
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setNow(new Date().getTime());
-    }, 60000);
-
-    const unsub = onSnapshot(doc(db, "duels", duelId), (snap) => {
-      if (snap.exists()) {
-        const data = snap.data() as DuelData;
-        setDuel(data);
-
-        const currentTimestamp = new Date().getTime();
-
-        if (data.status === "active" && currentTimestamp >= data.endDate) {
-          const p1 = data.player1;
-          const p2 = data.player2;
-          const s1 = data.scores?.[p1] || 0;
-          const s2 = data.scores?.[p2] || 0;
-          let winner: string | null = null;
-          if (s1 > s2) winner = p1;
-          else if (s2 > s1) winner = p2;
-
-          updateDoc(doc(db, "duels", duelId), {
-            status: "finished",
-            winnerId: winner,
-          }).catch(() => {});
-
-          if (winner) {
-            getDoc(doc(db, "users", winner)).then((uSnap) => {
-              const currentWins = uSnap.data()?.duelWins || 0;
-              updateDoc(doc(db, "users", winner), {
-                duelWins: currentWins + 1,
-                balance: increment(10),
-              }).catch(() => {});
-            });
-          }
-        }
-      }
-    });
-
-    return () => {
-      clearInterval(timer);
-      unsub();
-    };
-  }, [duelId]);
-
-  const handleSurrender = async () => {
-    if (!duel || duel.status !== "active") return;
-    const isConfirmed = window.confirm(
-      `Точно хочешь сдаться? Победа автоматически достанется @${partnerNickname}!`,
-    );
-    if (!isConfirmed) return;
-
-    const winner = duel.player1 === currentUserId ? duel.player2 : duel.player1;
-
-    try {
-      await updateDoc(doc(db, "duels", duelId), {
-        status: "finished",
-        winnerId: winner,
-        surrenderedBy: currentUserId,
-      });
-
-      const uSnap = await getDoc(doc(db, "users", winner));
-      const currentWins = uSnap.data()?.duelWins || 0;
-      await updateDoc(doc(db, "users", winner), {
-        duelWins: currentWins + 1,
-      });
-    } catch (e) {
-      console.error("Ошибка при сдаче:", e);
-    }
-  };
-
-  if (!duel) {
-    return <div className="pt-duel-waiting">Загрузка данных дуэли...</div>;
-  }
-
-  const myScore = duel.scores?.[currentUserId] || 0;
-  const partnerUid =
-    duel.player1 === currentUserId ? duel.player2 : duel.player1;
-  const partnerScore = duel.scores?.[partnerUid] || 0;
-
-  const msLeft = Math.max(0, duel.endDate - now);
-  const daysLeft = Math.ceil(msLeft / (1000 * 60 * 60 * 24));
-
-  if (duel.status === "finished") {
-    const isWinner = duel.winnerId === currentUserId;
-    const isDraw = !duel.winnerId;
-
-    return (
-      <div className="pt-duel-finished-block">
-        <h4 className="pt-duel-title">🏁 Дуэль окончена!</h4>
-        <div className="pt-duel-scoreboard">
-          <div className="pt-duel-score-col">
-            <span className="name">Ты</span>
-            <span className="score">{myScore}</span>
-          </div>
-          <span className="vs">:</span>
-          <div className="pt-duel-score-col">
-            <span className="name">@{partnerNickname}</span>
-            <span className="score">{partnerScore}</span>
-          </div>
-        </div>
-        <p className="pt-duel-result-banner">
-          {isDraw
-            ? "🤝 Ничья! Силы равны!"
-            : isWinner
-              ? "🏆 Твоя безоговорочная победа!"
-              : `💀 @${partnerNickname} оказался победителем.`}
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <h4 className="pt-duel-title">⚔️ Идет битва!</h4>
-      <div className="pt-duel-scoreboard">
-        <div
-          className={`pt-duel-score-col ${myScore >= partnerScore ? "leading" : ""}`}
-        >
-          <span className="name">Ты</span>
-          <span className="score">{myScore}</span>
-        </div>
-        <span className="vs">VS</span>
-        <div
-          className={`pt-duel-score-col ${partnerScore >= myScore ? "leading" : ""}`}
-        >
-          <span className="name">@{partnerNickname}</span>
-          <span className="score">{partnerScore}</span>
-        </div>
-      </div>
-
-      <div className="pt-duel-timer">
-        ⏳ Осталось {daysLeft}{" "}
-        {daysLeft === 1 ? "день" : daysLeft < 5 ? "дня" : "дней"}
-      </div>
-
-      <button
-        type="button"
-        className="pt-duel-surrender-btn"
-        onClick={handleSurrender}
-      >
-        🏳️ Сдаться
-      </button>
-    </div>
-  );
-}
-
-export function FriendsTab({ currentUser }: FriendsTabProps) {
+export function FriendsTab({
+  currentUser,
+  unreadFriendUids,
+  pendingDuelFriendUids,
+}: FriendsTabProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResult, setSearchResult] = useState<FriendProfile | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -367,11 +200,6 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
     };
   }, [chatPartner]);
 
-  const [unreadFriendUids, setUnreadFriendUids] = useState<string[]>([]);
-  const [pendingDuelFriendUids, setPendingDuelFriendUids] = useState<string[]>(
-    [],
-  );
-
   const [activeGame, setActiveGame] = useState<"flappy" | "doodle" | null>(
     null,
   );
@@ -429,46 +257,6 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
     );
     return () => unsub();
   }, [currentUser.uid]);
-
-  useEffect(() => {
-    if (friends.length === 0) return;
-
-    const unsubscribes: (() => void)[] = [];
-    const unreadMap: Record<string, boolean> = {};
-    const duelMap: Record<string, boolean> = {};
-
-    friends.forEach((friend) => {
-      const chatId = [currentUser.uid, friend.uid].sort().join("_");
-      const msgRef = collection(db, "chats", chatId, "messages");
-      const q = query(msgRef, where("senderUid", "==", friend.uid));
-
-      const unsub = onSnapshot(q, (snap) => {
-        unreadMap[friend.uid] = snap.docs.some(
-          (d) => d.data().read === false && d.data().type !== "duel_invite",
-        );
-        duelMap[friend.uid] = snap.docs.some(
-          (d) =>
-            d.data().type === "duel_invite" &&
-            d.data().duelStatus === "pending",
-        );
-
-        setUnreadFriendUids(
-          Object.keys(unreadMap).filter((uid) => unreadMap[uid]),
-        );
-        setPendingDuelFriendUids(
-          Object.keys(duelMap).filter((uid) => duelMap[uid]),
-        );
-      });
-
-      unsubscribes.push(unsub);
-    });
-
-    return () => {
-      unsubscribes.forEach((fn) => fn());
-      setUnreadFriendUids([]);
-      setPendingDuelFriendUids([]);
-    };
-  }, [friends, currentUser.uid]);
 
   useEffect(() => {
     if (!selectedFriend || !selectedDateKey) return;
@@ -656,7 +444,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
   };
 
   const handleRemoveFriend = async (friendUid: string) => {
-    if (!window.confirm("Точно хочешь удалить из друзей?")) return;
+    if (!(await askConfirm("Точно хочешь удалить из друзей?"))) return;
     try {
       await deleteDoc(doc(db, "users", currentUser.uid, "friends", friendUid));
       await deleteDoc(doc(db, "users", friendUid, "friends", currentUser.uid));
@@ -694,7 +482,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
 
   const handleDeleteComment = async (commentId: string) => {
     if (!selectedFriend || !selectedDateKey) return;
-    if (!window.confirm("Удалить комментарий?")) return;
+    if (!(await askConfirm("Удалить комментарий?"))) return;
     try {
       await deleteDoc(
         doc(
@@ -738,41 +526,30 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
 
       const gift = GIFTS_MAP[giftId];
       if (balance < gift.price) {
-        alert(
+        notify(
           `Нужно больше золота! Не хватает Смыв-коинов (цена: ${gift.price} 🪙).`,
+          "error",
         );
         return;
       }
 
       setIsGiftPickerOpen(false);
-      const chatId = [currentUser.uid, chatPartner.uid].sort().join("_");
 
       try {
-        setBalance((prev) => prev - gift.price);
-
-        await updateDoc(doc(db, "users", currentUser.uid), {
-          balance: increment(-gift.price),
+        await sendGift({
+          fromUid: currentUser.uid,
+          fromNickname: currentUser.displayName || "user",
+          toUid: chatPartner.uid,
+          giftId,
+          price: gift.price,
         });
-
-        await addDoc(collection(db, "chats", chatId, "messages"), {
-          senderUid: currentUser.uid,
-          text: `Отправил(а) подарок!`,
-          type: "gift",
-          giftId: giftId,
-          createdAt: serverTimestamp(),
-          read: false,
-        });
-        await addDoc(
-          collection(db, "users", chatPartner.uid, "gifts_received"),
-          {
-            fromUid: currentUser.uid,
-            fromNickname: currentUser.displayName || "user",
-            giftId: giftId,
-            createdAt: serverTimestamp(),
-          },
-        );
       } catch (e) {
-        console.error("Ошибка при отправке подарка:", e);
+        if (e instanceof InsufficientFundsError) {
+          notify("Не хватает Смыв-коинов 🪙", "error");
+        } else {
+          console.error("Ошибка при отправке подарка:", e);
+          notify("Не удалось отправить подарок. Монеты не списаны.", "error");
+        }
       }
     },
     [chatPartner, currentUser, balance],
@@ -797,13 +574,14 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
         const [s1, s2] = await Promise.all([getDocs(q1), getDocs(q2)]);
 
         if (!s1.empty || !s2.empty) {
-          alert(
+          notify(
             `У вас уже есть активная дуэль или ожидающий ответ вызов с @${friend.nickname}!`,
+            "error",
           );
           return;
         }
 
-        const isConfirmed = window.confirm(
+        const isConfirmed = await askConfirm(
           `Бросить вызов @${friend.nickname} на 7-дневную дуэль?`,
         );
         if (!isConfirmed) return;
@@ -1038,7 +816,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                     <div
                       className={`pt-chat-bubble pt-duel-invite active ${isMe ? "me" : "them"}`}
                     >
-                      <DuelCardView
+                      <DuelCard
                         duelId={m.duelId!}
                         currentUserId={currentUser.uid}
                         partnerNickname={chatPartner.nickname}
@@ -1168,7 +946,7 @@ export function FriendsTab({ currentUser }: FriendsTabProps) {
                       onClick={() =>
                         canAfford
                           ? handleSendGift(id)
-                          : alert("Иди зарабатывай Смыв-коины! 🪙")
+                          : notify("Иди зарабатывай Смыв-коины! 🪙", "error")
                       }
                     >
                       <span className="pt-gift-picker-icon">{gift.icon}</span>

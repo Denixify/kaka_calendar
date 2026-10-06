@@ -1,8 +1,8 @@
 import type { DayRecord, Records } from "../components/PoopTracker";
 
-function toDateKey(year: number, month: number, day: number): string {
-  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-}
+import { toDateKey } from "./dates";
+
+export const MAX_COUNT_PER_DAY = 5;
 
 export function calculateRecordScore(rec?: DayRecord): number {
   if (!rec || !rec.status) return 0;
@@ -42,8 +42,8 @@ export function calculateRecordScore(rec?: DayRecord): number {
   }
 
   const countNum = parseInt(rec.count || "1", 10);
-  if (rec.status !== "cancel" && !isNaN(countNum)) {
-    score += countNum;
+  if (rec.status !== "cancel" && !isNaN(countNum) && countNum > 0) {
+    score += Math.min(countNum, MAX_COUNT_PER_DAY);
   }
 
   return score;

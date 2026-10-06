@@ -4,11 +4,40 @@ import {
   signInWithEmailAndPassword,
   updateProfile,
 } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, runTransaction } from "firebase/firestore";
 import { auth, db, DOMAIN_SUFFIX } from "../firebase";
 
 interface AuthScreenProps {
   onSuccess: (nickname: string) => void;
+}
+
+function describeAuthError(err: unknown): string {
+  const code = (err as { code?: string })?.code;
+  const message = (err as { message?: string })?.message;
+
+  if (message === "NICKNAME_TAKEN") {
+    return "Этот никнейм уже занят. Придумай другой!";
+  }
+  switch (code) {
+    case "auth/invalid-credential":
+    case "auth/user-not-found":
+    case "auth/wrong-password":
+      return "Неверный никнейм или пароль";
+    case "auth/email-already-in-use":
+      return "Этот никнейм уже занят. Придумай другой!";
+    case "auth/weak-password":
+      return "Слишком простой пароль. Используй минимум 6 символов";
+    case "auth/network-request-failed":
+      return "Нет соединения с сетью. Проверь интернет и попробуй снова";
+    case "auth/too-many-requests":
+      return "Слишком много попыток. Подожди немного и попробуй снова";
+    case "permission-denied":
+    case "firestore/permission-denied":
+      return "Доступ запрещён правилами базы данных. Попробуй позже";
+    default:
+      console.error("Ошибка авторизации:", err);
+      return "Не удалось выполнить вход. Попробуй ещё раз";
+  }
 }
 
 export function AuthScreen({ onSuccess }: AuthScreenProps) {
@@ -44,29 +73,28 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
 
     try {
       if (isRegister) {
-        const usernameRef = doc(db, "usernames", cleanNickname);
-        const usernameSnap = await getDoc(usernameRef);
-
-        if (usernameSnap.exists()) {
-          setError("Этот никнейм уже занят. Придумай другой!");
-          setIsLoading(false);
-          return;
-        }
-
         const cred = await createUserWithEmailAndPassword(
           auth,
           fakeEmail,
           password,
         );
-        await updateProfile(cred.user, { displayName: cleanNickname });
-
-        await setDoc(doc(db, "usernames", cleanNickname), {
-          uid: cred.user.uid,
-        });
-        await setDoc(doc(db, "users", cred.user.uid), {
-          nickname: cleanNickname,
-          createdAt: Date.now(),
-        });
+        try {
+          await updateProfile(cred.user, { displayName: cleanNickname });
+          await runTransaction(db, async (tx) => {
+            const usernameRef = doc(db, "usernames", cleanNickname);
+            if ((await tx.get(usernameRef)).exists()) {
+              throw new Error("NICKNAME_TAKEN");
+            }
+            tx.set(usernameRef, { uid: cred.user.uid });
+            tx.set(doc(db, "users", cred.user.uid), {
+              nickname: cleanNickname,
+              createdAt: Date.now(),
+            });
+          });
+        } catch (profileErr) {
+          await cred.user.delete().catch(() => {});
+          throw profileErr;
+        }
 
         onSuccess(cleanNickname);
       } else {
@@ -77,21 +105,8 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
         );
         onSuccess(cred.user.displayName || cleanNickname);
       }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (err: any) {
-      if (
-        err.code === "auth/invalid-credential" ||
-        err.code === "auth/user-not-found" ||
-        err.code === "auth/wrong-password"
-      ) {
-        setError("Неверный никнейм или пароль");
-      } else if (err.code === "auth/email-already-in-use") {
-        setError("Пользователь с таким никнеймом уже зарегистрирован");
-      } else if (err.code === "permission-denied") {
-        setError("Доступ запрещен базой данных. Проверьте правила Firestore.");
-      } else {
-        setError(err.message || "Ошибка авторизации");
-      }
+    } catch (err: unknown) {
+      setError(describeAuthError(err));
     } finally {
       setIsLoading(false);
     }
@@ -121,10 +136,19 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
               placeholder="alex_2026"
               value={rawNickname}
               onChange={(e) => setRawNickname(e.target.value)}
+              name="username"
+              autoComplete="username"
               autoCapitalize="none"
               autoCorrect="off"
               required
             />
+            {rawNickname.trim() !== "" &&
+              cleanNickname !== rawNickname.trim().toLowerCase() && (
+                <small className="pt-auth-hint">
+                  Допустимы только латиница, цифры и _. Будет использовано: @
+                  {cleanNickname || "…"}
+                </small>
+              )}
           </label>
 
           <label className="pt-auth-label">
@@ -134,6 +158,10 @@ export function AuthScreen({ onSuccess }: AuthScreenProps) {
                 type={showPassword ? "text" : "password"}
                 className="pt-input"
                 placeholder="Пароль"
+                name="password"
+                autoComplete={isRegister ? "new-password" : "current-password"}
+                minLength={6}
+                required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
